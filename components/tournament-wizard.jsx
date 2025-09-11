@@ -31,7 +31,7 @@ export function TournamentWizard({ onComplete }) {
   const [currentStep, setCurrentStep] = useState(0)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const router = useRouter()
-  const { user, loading, initialized } = useAuthStore()
+  const { user, session, loading, initialized } = useAuthStore()
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -158,9 +158,14 @@ export function TournamentWizard({ onComplete }) {
     try {
       console.log('Creating tournament:', data)
       
+      if (!session?.access_token) {
+        throw new Error('No access token available')
+      }
+      
       const response = await fetch('/api/tournaments', {
         method: 'POST',
         headers: {
+          'Authorization': `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(data),

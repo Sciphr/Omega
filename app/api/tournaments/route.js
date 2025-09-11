@@ -43,16 +43,47 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const supabase = await createClient()
-    
-    // Get current user - now required for tournament creation
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    
-    if (authError || !user) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Authentication required to create tournaments. Please sign in or create an account.' 
-      }, { status: 401 })
+    // Check for authorization header first
+    const authHeader = request.headers.get('authorization')
+    let user = null
+    let supabase = null
+
+    if (authHeader) {
+      // Use Authorization header approach (like teams API)
+      const token = authHeader.replace('Bearer ', '')
+      const { createClient } = await import('@supabase/supabase-js')
+      supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+        {
+          global: {
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          }
+        }
+      )
+      
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser()
+      if (authError || !authUser) {
+        return NextResponse.json({ 
+          success: false, 
+          error: 'Invalid authentication token' 
+        }, { status: 401 })
+      }
+      user = authUser
+    } else {
+      // Fall back to cookie-based authentication
+      supabase = await createClient()
+      const { data: { user: cookieUser }, error: authError } = await supabase.auth.getUser()
+      
+      if (authError || !cookieUser) {
+        return NextResponse.json({ 
+          success: false, 
+          error: 'Authentication required to create tournaments. Please sign in or create an account.' 
+        }, { status: 401 })
+      }
+      user = cookieUser
     }
 
     const tournamentData = await request.json()
