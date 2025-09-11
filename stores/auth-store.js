@@ -53,6 +53,27 @@ export const useAuthStore = create((set, get) => ({
       console.log('Sign up response:', data)
       if (data.user && data.session) {
         console.log('Setting user state after signup:', data.user)
+        
+        // Create user profile in users table
+        try {
+          const { error: profileError } = await supabase
+            .from('users')
+            .insert({
+              id: data.user.id,
+              email: data.user.email,
+              username: userData.username || data.user.email.split('@')[0],
+              display_name: userData.display_name || userData.username || data.user.email.split('@')[0],
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+          
+          if (profileError) {
+            console.error('Error creating user profile during signup:', profileError)
+          }
+        } catch (profileError) {
+          console.error('Failed to create user profile:', profileError)
+        }
+        
         set({ 
           user: data.user, 
           session: data.session, 

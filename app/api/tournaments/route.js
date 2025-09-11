@@ -86,6 +86,35 @@ export async function POST(request) {
       user = cookieUser
     }
 
+    // Ensure user profile exists in users table
+    const { data: existingUser } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', user.id)
+      .single()
+    
+    if (!existingUser) {
+      // Create user profile if it doesn't exist
+      const { error: userError } = await supabase
+        .from('users')
+        .insert({
+          id: user.id,
+          email: user.email,
+          username: user.user_metadata?.username || user.email.split('@')[0],
+          display_name: user.user_metadata?.display_name || user.user_metadata?.username || user.email.split('@')[0],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+      
+      if (userError) {
+        console.error('Error creating user profile:', userError)
+        return NextResponse.json({ 
+          success: false, 
+          error: 'Failed to create user profile' 
+        }, { status: 500 })
+      }
+    }
+
     const tournamentData = await request.json()
     
     // Validate required fields
