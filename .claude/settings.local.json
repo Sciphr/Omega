@@ -3,7 +3,8 @@
     "allow": [
       "Bash(npm install:*)",
       "Bash(npx:*)",
-      "WebSearch"
+      "WebSearch",
+      "WebFetch(domain:www.npmjs.com)"
     ],
     "deny": [],
     "ask": []
