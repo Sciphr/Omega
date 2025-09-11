@@ -321,13 +321,13 @@ export default function TournamentPage() {
 function StatusBadge({ status }) {
   switch (status) {
     case TOURNAMENT_STATUS.REGISTRATION:
-      return <Badge className="bg-green-600">Registration Open</Badge>
+      return <Badge className="bg-gradient-to-r from-green-500 to-emerald-500 text-white border-0">Registration Open</Badge>
     case TOURNAMENT_STATUS.IN_PROGRESS:
-      return <Badge className="bg-blue-600">In Progress</Badge>
+      return <Badge className="bg-gradient-to-r from-primary to-blue-600 text-white border-0">In Progress</Badge>
     case TOURNAMENT_STATUS.COMPLETED:
-      return <Badge className="bg-purple-600">Completed</Badge>
+      return <Badge className="bg-gradient-to-r from-accent to-purple-600 text-white border-0">Completed</Badge>
     case TOURNAMENT_STATUS.ARCHIVED:
-      return <Badge variant="secondary">Archived</Badge>
+      return <Badge className="bg-gradient-to-r from-gray-500 to-gray-600 text-white border-0">Archived</Badge>
     default:
       return <Badge variant="outline">{status}</Badge>
   }

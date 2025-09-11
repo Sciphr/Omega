@@ -45,7 +45,7 @@ export default function Home() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-16">
           <Card className="border-2 hover:border-primary/50 transition-colors">
             <CardHeader>
-              <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
+              <div className="w-12 h-12 bg-gradient-to-br from-primary/20 to-accent/20 rounded-lg flex items-center justify-center mb-4">
                 <Gamepad2 className="h-6 w-6 text-primary" />
               </div>
               <CardTitle>Game Templates</CardTitle>
@@ -63,10 +63,10 @@ export default function Home() {
             </CardContent>
           </Card>
 
-          <Card className="border-2 hover:border-primary/50 transition-colors">
+          <Card className="border-2 hover:border-accent/50 transition-colors">
             <CardHeader>
-              <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
-                <Zap className="h-6 w-6 text-primary" />
+              <div className="w-12 h-12 bg-gradient-to-br from-accent/20 to-primary/20 rounded-lg flex items-center justify-center mb-4">
+                <Zap className="h-6 w-6 text-accent" />
               </div>
               <CardTitle>Real-time Updates</CardTitle>
               <CardDescription>
@@ -91,10 +91,10 @@ export default function Home() {
             </CardContent>
           </Card>
 
-          <Card className="border-2 hover:border-primary/50 transition-colors">
+          <Card className="border-2 hover:border-green-500/50 transition-colors">
             <CardHeader>
-              <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
-                <Users className="h-6 w-6 text-primary" />
+              <div className="w-12 h-12 bg-gradient-to-br from-green-500/20 to-primary/20 rounded-lg flex items-center justify-center mb-4">
+                <Users className="h-6 w-6 text-green-600" />
               </div>
               <CardTitle>Flexible Participation</CardTitle>
               <CardDescription>
@@ -110,10 +110,10 @@ export default function Home() {
             </CardContent>
           </Card>
 
-          <Card className="border-2 hover:border-primary/50 transition-colors">
+          <Card className="border-2 hover:border-orange-500/50 transition-colors">
             <CardHeader>
-              <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
-                <Trophy className="h-6 w-6 text-primary" />
+              <div className="w-12 h-12 bg-gradient-to-br from-orange-500/20 to-accent/20 rounded-lg flex items-center justify-center mb-4">
+                <Trophy className="h-6 w-6 text-orange-600" />
               </div>
               <CardTitle>Tournament Formats</CardTitle>
               <CardDescription>
@@ -128,10 +128,10 @@ export default function Home() {
             </CardContent>
           </Card>
 
-          <Card className="border-2 hover:border-primary/50 transition-colors">
+          <Card className="border-2 hover:border-emerald-500/50 transition-colors">
             <CardHeader>
-              <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
-                <Shield className="h-6 w-6 text-primary" />
+              <div className="w-12 h-12 bg-gradient-to-br from-emerald-500/20 to-primary/20 rounded-lg flex items-center justify-center mb-4">
+                <Shield className="h-6 w-6 text-emerald-600" />
               </div>
               <CardTitle>Secure & Private</CardTitle>
               <CardDescription>
@@ -147,10 +147,10 @@ export default function Home() {
             </CardContent>
           </Card>
 
-          <Card className="border-2 hover:border-primary/50 transition-colors">
+          <Card className="border-2 hover:border-pink-500/50 transition-colors">
             <CardHeader>
-              <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
-                <Clock className="h-6 w-6 text-primary" />
+              <div className="w-12 h-12 bg-gradient-to-br from-pink-500/20 to-accent/20 rounded-lg flex items-center justify-center mb-4">
+                <Clock className="h-6 w-6 text-pink-600" />
               </div>
               <CardTitle>Smart Management</CardTitle>
               <CardDescription>
@@ -169,7 +169,7 @@ export default function Home() {
 
         {/* CTA Section */}
         <div className="text-center">
-          <Card className="max-w-2xl mx-auto bg-primary/5 border-primary/20">
+          <Card className="max-w-2xl mx-auto bg-gradient-to-br from-primary/10 to-accent/10 border-primary/20">
             <CardHeader>
               <CardTitle className="text-2xl">Ready to Get Started?</CardTitle>
               <CardDescription className="text-lg">

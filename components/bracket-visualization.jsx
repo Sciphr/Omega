@@ -256,13 +256,13 @@ function MatchCard({ match, tournament, position, onClick, isClickable = true })
   const getMatchStatusColor = (status) => {
     switch (status) {
       case MATCH_STATUS.COMPLETED:
-        return 'border-green-500 bg-green-50 dark:bg-green-950'
+        return 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950 dark:to-emerald-950'
       case MATCH_STATUS.IN_PROGRESS:
-        return 'border-blue-500 bg-blue-50 dark:bg-blue-950'
+        return 'border-primary bg-gradient-to-br from-blue-50 to-primary/10 dark:from-blue-950 dark:to-primary/20'
       case MATCH_STATUS.DISPUTED:
-        return 'border-yellow-500 bg-yellow-50 dark:bg-yellow-950'
+        return 'border-orange-500 bg-gradient-to-br from-orange-50 to-yellow-50 dark:from-orange-950 dark:to-yellow-950'
       case MATCH_STATUS.FORFEIT:
-        return 'border-red-500 bg-red-50 dark:bg-red-950'
+        return 'border-red-500 bg-gradient-to-br from-red-50 to-pink-50 dark:from-red-950 dark:to-pink-950'
       default:
         return 'border-muted-foreground/20 bg-background'
     }
@@ -271,11 +271,11 @@ function MatchCard({ match, tournament, position, onClick, isClickable = true })
   const getStatusIcon = (status) => {
     switch (status) {
       case MATCH_STATUS.COMPLETED:
-        return <CheckCircle className="h-4 w-4 text-green-600" />
+        return <CheckCircle className="h-4 w-4 text-emerald-600" />
       case MATCH_STATUS.IN_PROGRESS:
-        return <PlayCircle className="h-4 w-4 text-blue-600" />
+        return <PlayCircle className="h-4 w-4 text-primary" />
       case MATCH_STATUS.DISPUTED:
-        return <AlertCircle className="h-4 w-4 text-yellow-600" />
+        return <AlertCircle className="h-4 w-4 text-orange-600" />
       case MATCH_STATUS.FORFEIT:
         return <AlertCircle className="h-4 w-4 text-red-600" />
       default:

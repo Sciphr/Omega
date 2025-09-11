@@ -106,7 +106,12 @@ export function TournamentWizard({ onComplete }) {
             <span className="text-sm font-medium">Step {currentStep + 1} of {STEPS.length}</span>
             <span className="text-sm text-muted-foreground">{Math.round(progress)}% Complete</span>
           </div>
-          <Progress value={progress} className="h-2" />
+          <div className="w-full bg-muted rounded-full h-2">
+            <div
+              className="bg-gradient-to-r from-primary to-accent h-2 rounded-full transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
         </div>
         
         <div className="flex items-center justify-center mt-6 space-x-4">
@@ -118,8 +123,8 @@ export function TournamentWizard({ onComplete }) {
             return (
               <div key={step.id} className="flex items-center">
                 <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
-                  isActive ? 'border-primary bg-primary text-primary-foreground' :
-                  isCompleted ? 'border-green-500 bg-green-500 text-white' :
+                  isActive ? 'border-primary bg-gradient-to-br from-primary to-accent text-white' :
+                  isCompleted ? 'border-green-500 bg-gradient-to-br from-green-500 to-emerald-500 text-white' :
                   'border-muted bg-muted text-muted-foreground'
                 }`}>
                   <Icon className="h-5 w-5" />

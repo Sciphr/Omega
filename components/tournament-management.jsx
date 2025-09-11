@@ -143,10 +143,10 @@ export function TournamentManagement({
 
       {/* Quick Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
+        <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
           <CardContent className="p-4">
             <div className="flex items-center space-x-2">
-              <Users className="h-4 w-4 text-blue-600" />
+              <Users className="h-4 w-4 text-primary" />
               <div>
                 <div className="text-2xl font-bold">{activeParticipants.length}</div>
                 <div className="text-xs text-muted-foreground">Active</div>
@@ -155,10 +155,10 @@ export function TournamentManagement({
           </CardContent>
         </Card>
         
-        <Card>
+        <Card className="bg-gradient-to-br from-orange-500/5 to-orange-500/10 border-orange-500/20">
           <CardContent className="p-4">
             <div className="flex items-center space-x-2">
-              <Clock className="h-4 w-4 text-yellow-600" />
+              <Clock className="h-4 w-4 text-orange-600" />
               <div>
                 <div className="text-2xl font-bold">{pendingMatches.length}</div>
                 <div className="text-xs text-muted-foreground">Pending</div>
@@ -167,7 +167,7 @@ export function TournamentManagement({
           </CardContent>
         </Card>
         
-        <Card>
+        <Card className="bg-gradient-to-br from-green-500/5 to-green-500/10 border-green-500/20">
           <CardContent className="p-4">
             <div className="flex items-center space-x-2">
               <Play className="h-4 w-4 text-green-600" />
@@ -179,10 +179,10 @@ export function TournamentManagement({
           </CardContent>
         </Card>
         
-        <Card>
+        <Card className="bg-gradient-to-br from-accent/5 to-accent/10 border-accent/20">
           <CardContent className="p-4">
             <div className="flex items-center space-x-2">
-              <CheckCircle className="h-4 w-4 text-purple-600" />
+              <CheckCircle className="h-4 w-4 text-accent" />
               <div>
                 <div className="text-2xl font-bold">{completedMatches.length}</div>
                 <div className="text-xs text-muted-foreground">Completed</div>

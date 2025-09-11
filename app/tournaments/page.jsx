@@ -182,11 +182,11 @@ function TournamentCard({ tournament }) {
   const getStatusBadge = (status) => {
     switch (status) {
       case TOURNAMENT_STATUS.REGISTRATION:
-        return <Badge className="bg-green-600">Registration Open</Badge>
+        return <Badge className="bg-gradient-to-r from-green-500 to-emerald-500 text-white border-0">Registration Open</Badge>
       case TOURNAMENT_STATUS.IN_PROGRESS:
-        return <Badge className="bg-blue-600">In Progress</Badge>
+        return <Badge className="bg-gradient-to-r from-primary to-blue-600 text-white border-0">In Progress</Badge>
       case TOURNAMENT_STATUS.COMPLETED:
-        return <Badge variant="secondary">Completed</Badge>
+        return <Badge className="bg-gradient-to-r from-accent to-purple-600 text-white border-0">Completed</Badge>
       default:
         return <Badge variant="outline">{status}</Badge>
     }
@@ -242,7 +242,7 @@ function TournamentCard({ tournament }) {
           {/* Progress Bar */}
           <div className="w-full bg-muted rounded-full h-2">
             <div
-              className="bg-primary h-2 rounded-full transition-all duration-300"
+              className="bg-gradient-to-r from-primary to-accent h-2 rounded-full transition-all duration-300"
               style={{ width: `${getProgressPercentage()}%` }}
             />
           </div>
