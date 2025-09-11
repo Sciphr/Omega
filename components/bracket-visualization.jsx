@@ -28,10 +28,10 @@ import {
 } from 'lucide-react'
 import { MATCH_STATUS, PARTICIPANT_STATUS } from '@/lib/types'
 
-const MATCH_CARD_WIDTH = 200
-const MATCH_CARD_HEIGHT = 80
-const ROUND_SPACING = 240
-const MATCH_SPACING = 100
+const MATCH_CARD_WIDTH = 220
+const MATCH_CARD_HEIGHT = 90
+const ROUND_SPACING = 260
+const MATCH_SPACING = 120
 
 export function BracketVisualization({ 
   bracket, 
@@ -163,20 +163,20 @@ export function BracketVisualization({
             <div key={round.roundNumber} className="absolute">
               {/* Round Header */}
               <div
-                className="text-center mb-4 font-semibold text-lg"
+                className="absolute text-center font-semibold text-lg bg-background px-3 py-1 rounded-md border shadow-sm z-10"
                 style={{
                   left: `${roundIndex * ROUND_SPACING + 50}px`,
-                  top: '20px',
+                  top: '10px',
                   width: `${MATCH_CARD_WIDTH}px`
                 }}
               >
-                {round.name}
+                {round.name || `Round ${round.roundNumber}`}
               </div>
 
               {/* Matches */}
               {round.matches.map((match, matchIndex) => {
                 const x = roundIndex * ROUND_SPACING + 50
-                const y = 80 + matchIndex * MATCH_SPACING + 
+                const y = 100 + matchIndex * MATCH_SPACING + 
                          (maxMatchesInRound - round.matches.length) * MATCH_SPACING / 2
 
                 return (
@@ -200,7 +200,7 @@ export function BracketVisualization({
                   className="absolute pointer-events-none"
                   style={{
                     left: `${roundIndex * ROUND_SPACING + MATCH_CARD_WIDTH + 50}px`,
-                    top: '80px',
+                    top: '100px',
                     width: `${ROUND_SPACING - MATCH_CARD_WIDTH}px`,
                     height: `${round.matches.length * MATCH_SPACING}px`
                   }}
@@ -288,7 +288,7 @@ function MatchCard({ match, tournament, position, onClick, isClickable = true })
 
   return (
     <Card
-      className={`absolute border-2 cursor-pointer transition-all hover:shadow-lg ${
+      className={`absolute border-2 cursor-pointer transition-all hover:shadow-lg hover:scale-105 z-20 ${
         getMatchStatusColor(match.status)
       } ${!isClickable ? 'cursor-default' : ''}`}
       style={{
@@ -299,32 +299,36 @@ function MatchCard({ match, tournament, position, onClick, isClickable = true })
       }}
       onClick={isClickable ? onClick : undefined}
     >
-      <CardContent className="p-2 h-full">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-xs font-medium">
+      <CardContent className="p-3 h-full flex flex-col justify-between">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-semibold text-foreground">
             Match {match.matchNumber}
           </span>
           {getStatusIcon(match.status)}
         </div>
         
-        <div className="space-y-1 text-xs">
-          <div className="flex items-center justify-between">
-            <span className={`truncate ${match.winner === match.participant1?.id ? 'font-bold' : ''}`}>
-              {match.participant1?.participantName || 'TBD'}
+        <div className="space-y-2 flex-1">
+          <div className="flex items-center justify-between min-h-[18px]">
+            <span className={`truncate text-sm max-w-[120px] ${
+              match.winner === match.participant1?.id ? 'font-bold text-primary' : 'text-foreground'
+            }`}>
+              {match.participant1?.participantName || match.participant1?.participant_name || 'TBD'}
             </span>
             {showScore && (
-              <span className="font-mono text-xs">
+              <span className="font-mono text-sm font-bold ml-2">
                 {match.score[match.participant1?.id] || '0'}
               </span>
             )}
           </div>
           
-          <div className="flex items-center justify-between">
-            <span className={`truncate ${match.winner === match.participant2?.id ? 'font-bold' : ''}`}>
-              {match.participant2?.participantName || 'TBD'}
+          <div className="flex items-center justify-between min-h-[18px]">
+            <span className={`truncate text-sm max-w-[120px] ${
+              match.winner === match.participant2?.id ? 'font-bold text-primary' : 'text-foreground'
+            }`}>
+              {match.participant2?.participantName || match.participant2?.participant_name || 'TBD'}
             </span>
             {showScore && (
-              <span className="font-mono text-xs">
+              <span className="font-mono text-sm font-bold ml-2">
                 {match.score[match.participant2?.id] || '0'}
               </span>
             )}
@@ -332,8 +336,11 @@ function MatchCard({ match, tournament, position, onClick, isClickable = true })
         </div>
 
         {!isMatchReady && (
-          <div className="absolute inset-0 bg-background/80 flex items-center justify-center text-xs text-muted-foreground">
-            Waiting for participants
+          <div className="absolute inset-0 bg-background/90 flex items-center justify-center text-sm text-muted-foreground font-medium rounded-lg">
+            <div className="text-center px-2">
+              <Clock className="h-4 w-4 mx-auto mb-1" />
+              <div className="text-xs">Waiting for<br/>participants</div>
+            </div>
           </div>
         )}
       </CardContent>

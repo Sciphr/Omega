@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
-import { BracketVisualization } from '@/components/bracket-visualization'
+import { BracketVisualizationNew } from '@/components/bracket-visualization-new'
 import { 
   Trophy, 
   Users, 
@@ -70,30 +70,49 @@ export default function TournamentPage() {
   const isAdmin = false
 
   useEffect(() => {
-    // Simulate API call
     const loadTournament = async () => {
       try {
         setLoading(true)
-        // Replace with actual API call
-        await new Promise(resolve => setTimeout(resolve, 1000))
         
-        setTournament(mockTournament)
+        // Fetch actual tournament data
+        const response = await fetch(`/api/tournaments/${params.id}`)
+        const result = await response.json()
         
-        // Generate bracket visualization
-        if (mockTournament.participants.length >= 4) {
-          const generatedBracket = BracketGenerator.generateSingleElimination(
-            mockTournament.participants
-          )
-          setBracket(generatedBracket)
+        if (result.success) {
+          setTournament(result.tournament)
+          
+          // Generate bracket visualization if tournament has started
+          if (result.tournament.status === 'in_progress' && result.tournament.participants?.length >= 4) {
+            const generatedBracket = BracketGenerator.generateSingleElimination(
+              result.tournament.participants
+            )
+            setBracket(generatedBracket)
+          } else if (result.tournament.status === 'registration') {
+            // Generate placeholder bracket with empty slots
+            const placeholders = Array.from({ length: result.tournament.max_participants }, (_, i) => ({
+              id: `placeholder-${i + 1}`,
+              participantName: `Participant ${i + 1}`,
+              seed: i + 1,
+              status: 'pending'
+            }))
+            const generatedBracket = BracketGenerator.generateSingleElimination(placeholders)
+            setBracket(generatedBracket)
+          }
+        } else {
+          console.error('Failed to load tournament:', result.error)
+          setTournament(null)
         }
       } catch (error) {
         console.error('Failed to load tournament:', error)
+        setTournament(null)
       } finally {
         setLoading(false)
       }
     }
 
-    loadTournament()
+    if (params.id) {
+      loadTournament()
+    }
   }, [params.id])
 
   const handleShareTournament = async () => {
@@ -281,7 +300,7 @@ export default function TournamentPage() {
               </CardHeader>
               <CardContent>
                 {bracket ? (
-                  <BracketVisualization
+                  <BracketVisualizationNew
                     bracket={bracket}
                     tournament={tournament}
                     onMatchClick={handleMatchClick}

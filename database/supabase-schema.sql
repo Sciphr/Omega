@@ -1,10 +1,8 @@
--- Database Schema for Tournament Bracket Generator
+-- Supabase-Compatible Database Schema for Tournament Bracket Generator
+-- Run this in your Supabase SQL Editor
 
--- Enable UUID extension
+-- Enable UUID extension (usually already enabled in Supabase)
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
--- Enable RLS (Row Level Security)
-ALTER DATABASE postgres SET "app.jwt_secret" TO 'your-jwt-secret';
 
 -- Users table for registered users
 CREATE TABLE users (

@@ -1,3 +1,6 @@
+'use client'
+
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -24,67 +27,53 @@ import {
 } from 'lucide-react'
 import { GAME_TEMPLATES, TOURNAMENT_STATUS, TOURNAMENT_FORMAT } from '@/lib/types'
 
-// Mock tournament data - replace with actual API call
-const mockTournaments = [
-  {
-    id: '1',
-    name: 'Spring Championship 2024',
-    game: 'league_of_legends',
-    format: 'single_elimination',
-    status: 'registration',
-    currentParticipants: 12,
-    maxParticipants: 16,
-    creatorName: 'GameMaster',
-    createdAt: '2024-01-15T10:00:00Z',
-    isPublic: true,
-    hasPassword: false,
-    description: 'Competitive League of Legends tournament with prizes for top 3.'
-  },
-  {
-    id: '2',
-    name: 'Weekly Smash Bros',
-    game: 'smash_bros',
-    format: 'double_elimination',
-    status: 'in_progress',
-    currentParticipants: 32,
-    maxParticipants: 32,
-    creatorName: 'SmashPro',
-    createdAt: '2024-01-14T15:30:00Z',
-    isPublic: true,
-    hasPassword: false,
-    description: 'Weekly tournament for Smash Bros Ultimate players.'
-  },
-  {
-    id: '3',
-    name: 'CS2 Community Cup',
-    game: 'cs2',
-    format: 'single_elimination',
-    status: 'registration',
-    currentParticipants: 24,
-    maxParticipants: 64,
-    creatorName: 'CS_Admin',
-    createdAt: '2024-01-13T20:00:00Z',
-    isPublic: true,
-    hasPassword: true,
-    description: 'Team-based CS2 tournament for community members.'
-  },
-  {
-    id: '4',
-    name: 'Valorant Invitational',
-    game: 'valorant',
-    format: 'double_elimination',
-    status: 'completed',
-    currentParticipants: 16,
-    maxParticipants: 16,
-    creatorName: 'ValPro',
-    createdAt: '2024-01-10T12:00:00Z',
-    isPublic: true,
-    hasPassword: false,
-    description: 'Invite-only Valorant tournament with professional teams.'
-  }
-]
-
 export default function TournamentsPage() {
+  const [tournaments, setTournaments] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [filters, setFilters] = useState({
+    search: '',
+    game: 'all',
+    status: 'all',
+    format: 'all'
+  })
+
+  // Fetch tournaments from API
+  useEffect(() => {
+    const fetchTournaments = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        
+        // Build query parameters
+        const params = new URLSearchParams()
+        if (filters.search) params.append('search', filters.search)
+        if (filters.game !== 'all') params.append('game', filters.game)
+        if (filters.status !== 'all') params.append('status', filters.status)
+        if (filters.format !== 'all') params.append('format', filters.format)
+        
+        const response = await fetch(`/api/tournaments?${params}`)
+        const result = await response.json()
+        
+        if (result.success) {
+          setTournaments(result.tournaments)
+        } else {
+          setError(result.error)
+        }
+      } catch (err) {
+        setError('Failed to load tournaments')
+        console.error('Failed to fetch tournaments:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchTournaments()
+  }, [filters])
+
+  const handleFilterChange = (key, value) => {
+    setFilters(prev => ({ ...prev, [key]: value }))
+  }
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8">
@@ -115,10 +104,12 @@ export default function TournamentsPage() {
                 <Input 
                   placeholder="Search tournaments..." 
                   className="pl-9"
+                  value={filters.search}
+                  onChange={(e) => handleFilterChange('search', e.target.value)}
                 />
               </div>
               
-              <Select>
+              <Select value={filters.game} onValueChange={(value) => handleFilterChange('game', value)}>
                 <SelectTrigger>
                   <SelectValue placeholder="All Games" />
                 </SelectTrigger>
@@ -132,7 +123,7 @@ export default function TournamentsPage() {
                 </SelectContent>
               </Select>
               
-              <Select>
+              <Select value={filters.status} onValueChange={(value) => handleFilterChange('status', value)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
@@ -144,7 +135,7 @@ export default function TournamentsPage() {
                 </SelectContent>
               </Select>
               
-              <Select>
+              <Select value={filters.format} onValueChange={(value) => handleFilterChange('format', value)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Format" />
                 </SelectTrigger>
@@ -159,33 +150,71 @@ export default function TournamentsPage() {
         </Card>
 
         {/* Tournaments Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {mockTournaments.map((tournament) => (
-            <TournamentCard key={tournament.id} tournament={tournament} />
-          ))}
-        </div>
-
-        {/* Load More */}
-        <div className="text-center mt-8">
-          <Button variant="outline" size="lg">
-            Load More Tournaments
-          </Button>
-        </div>
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[...Array(6)].map((_, i) => (
+              <Card key={i} className="animate-pulse">
+                <CardHeader>
+                  <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                  <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="h-3 bg-gray-200 rounded w-full"></div>
+                    <div className="h-3 bg-gray-200 rounded w-2/3"></div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : error ? (
+          <div className="text-center py-12">
+            <Trophy className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold mb-2">Failed to Load Tournaments</h3>
+            <p className="text-muted-foreground mb-4">{error}</p>
+            <Button onClick={() => window.location.reload()}>
+              Try Again
+            </Button>
+          </div>
+        ) : tournaments.length === 0 ? (
+          <div className="text-center py-12">
+            <Trophy className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No Tournaments Found</h3>
+            <p className="text-muted-foreground mb-4">
+              {filters.search || filters.game !== 'all' || filters.status !== 'all' || filters.format !== 'all'
+                ? "Try adjusting your filters or create the first tournament!"
+                : "Be the first to create a tournament!"
+              }
+            </p>
+            <Link href="/create">
+              <Button>
+                <Plus className="h-4 w-4 mr-2" />
+                Create Tournament
+              </Button>
+            </Link>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {tournaments.map((tournament) => (
+              <TournamentCard key={tournament.id} tournament={tournament} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
 function TournamentCard({ tournament }) {
-  const gameTemplate = GAME_TEMPLATES[tournament.game]
+  const gameTemplate = Object.values(GAME_TEMPLATES).find(g => g.id === tournament.game)
   
   const getStatusBadge = (status) => {
     switch (status) {
-      case TOURNAMENT_STATUS.REGISTRATION:
+      case 'registration':
         return <Badge className="bg-gradient-to-r from-green-500 to-emerald-500 text-white border-0">Registration Open</Badge>
-      case TOURNAMENT_STATUS.IN_PROGRESS:
+      case 'in_progress':
         return <Badge className="bg-gradient-to-r from-primary to-blue-600 text-white border-0">In Progress</Badge>
-      case TOURNAMENT_STATUS.COMPLETED:
+      case 'completed':
         return <Badge className="bg-gradient-to-r from-accent to-purple-600 text-white border-0">Completed</Badge>
       default:
         return <Badge variant="outline">{status}</Badge>
@@ -193,7 +222,9 @@ function TournamentCard({ tournament }) {
   }
 
   const getProgressPercentage = () => {
-    return (tournament.currentParticipants / tournament.maxParticipants) * 100
+    const current = tournament.current_participants || 0
+    const max = tournament.max_participants || 1
+    return (current / max) * 100
   }
 
   return (
@@ -205,7 +236,7 @@ function TournamentCard({ tournament }) {
             <Badge variant="outline">{gameTemplate?.name || tournament.game}</Badge>
           </div>
           <div className="flex items-center space-x-2">
-            {tournament.hasPassword && (
+            {tournament.password_hash && (
               <Shield className="h-4 w-4 text-yellow-600" title="Password Protected" />
             )}
             {getStatusBadge(tournament.status)}
@@ -234,7 +265,7 @@ function TournamentCard({ tournament }) {
             <div className="flex items-center space-x-1">
               <Users className="h-4 w-4 text-muted-foreground" />
               <span>
-                {tournament.currentParticipants}/{tournament.maxParticipants}
+                {tournament.current_participants || 0}/{tournament.max_participants}
               </span>
             </div>
           </div>
@@ -249,11 +280,11 @@ function TournamentCard({ tournament }) {
 
           {/* Creator and Date */}
           <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <span>by {tournament.creatorName}</span>
+            <span>by {tournament.creator_name}</span>
             <div className="flex items-center space-x-1">
               <Calendar className="h-4 w-4" />
               <span>
-                {new Date(tournament.createdAt).toLocaleDateString()}
+                {new Date(tournament.created_at).toLocaleDateString()}
               </span>
             </div>
           </div>
@@ -267,7 +298,7 @@ function TournamentCard({ tournament }) {
               </Button>
             </Link>
             
-            {tournament.status === TOURNAMENT_STATUS.REGISTRATION && (
+            {tournament.status === 'registration' && (
               <Link href={`/tournament/${tournament.id}/join`} className="flex-1">
                 <Button className="w-full" size="sm">
                   Join
@@ -275,7 +306,7 @@ function TournamentCard({ tournament }) {
               </Link>
             )}
             
-            {tournament.status === TOURNAMENT_STATUS.IN_PROGRESS && (
+            {tournament.status === 'in_progress' && (
               <Link href={`/tournament/${tournament.id}`} className="flex-1">
                 <Button className="w-full" size="sm">
                   <Clock className="h-4 w-4 mr-2" />
@@ -284,7 +315,7 @@ function TournamentCard({ tournament }) {
               </Link>
             )}
             
-            {tournament.status === TOURNAMENT_STATUS.COMPLETED && (
+            {tournament.status === 'completed' && (
               <Link href={`/tournament/${tournament.id}`} className="flex-1">
                 <Button variant="secondary" className="w-full" size="sm">
                   <Trophy className="h-4 w-4 mr-2" />

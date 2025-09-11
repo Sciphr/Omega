@@ -1,59 +1,67 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import Link from 'next/link'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { userRegistrationSchema } from '@/lib/validations'
-import { useAuthStore } from '@/stores/auth-store'
-import { Trophy, Eye, EyeOff, Loader2, CheckCircle } from 'lucide-react'
+import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { userRegistrationSchema } from "@/lib/validations";
+import { useAuthStore } from "@/stores/auth-store";
+import { Trophy, Eye, EyeOff, Loader2, CheckCircle } from "lucide-react";
 
 export default function RegisterPage() {
-  const [showPassword, setShowPassword] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
-  const [registrationComplete, setRegistrationComplete] = useState(false)
-  const router = useRouter()
-  const signUp = useAuthStore(state => state.signUp)
+  const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [registrationComplete, setRegistrationComplete] = useState(false);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const signUp = useAuthStore((state) => state.signUp);
+  const redirect = searchParams.get('redirect') || '/tournaments';
 
   const form = useForm({
     resolver: zodResolver(userRegistrationSchema),
     defaultValues: {
-      username: '',
-      email: '',
-      password: '',
-      displayName: ''
-    }
-  })
+      username: "",
+      email: "",
+      password: "",
+      displayName: "",
+    },
+  });
 
   const onSubmit = async (data) => {
-    setIsLoading(true)
+    setIsLoading(true);
     try {
       const result = await signUp(data.email, data.password, {
         username: data.username,
         display_name: data.displayName || data.username,
-      })
-      
+      });
+
       if (result.success) {
-        setRegistrationComplete(true)
+        setRegistrationComplete(true);
         // Auto redirect after 3 seconds
         setTimeout(() => {
-          router.push('/tournaments')
-        }, 3000)
+          router.push(redirect);
+        }, 3000);
       } else {
-        form.setError('root', { message: result.error })
+        form.setError("root", { message: result.error });
       }
     } catch (error) {
-      form.setError('root', { message: 'An unexpected error occurred' })
+      form.setError("root", { message: "An unexpected error occurred" });
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   if (registrationComplete) {
     return (
@@ -65,16 +73,19 @@ export default function RegisterPage() {
             </div>
             <h2 className="text-xl font-semibold">Account Created!</h2>
             <p className="text-muted-foreground">
-              Welcome to BracketForge! Your account has been created successfully.
+              Welcome to Omega! Your account has been created successfully.
               You'll be redirected to browse tournaments shortly.
             </p>
-            <Button onClick={() => router.push('/tournaments')} className="w-full">
+            <Button
+              onClick={() => router.push(redirect)}
+              className="w-full"
+            >
               Continue to Tournaments
             </Button>
           </CardContent>
         </Card>
       </div>
-    )
+    );
   }
 
   return (
@@ -82,14 +93,19 @@ export default function RegisterPage() {
       <div className="w-full max-w-md space-y-6">
         {/* Header */}
         <div className="text-center space-y-2">
-          <Link href="/" className="inline-flex items-center space-x-2 text-primary">
+          <Link
+            href="/"
+            className="inline-flex items-center space-x-2 text-primary"
+          >
             <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
               <Trophy className="h-5 w-5 text-primary-foreground" />
             </div>
-            <span className="font-bold text-xl">BracketForge</span>
+            <span className="font-bold text-xl">Omega</span>
           </Link>
           <h1 className="text-2xl font-bold">Create your account</h1>
-          <p className="text-muted-foreground">Join BracketForge to create and manage tournaments</p>
+          <p className="text-muted-foreground">
+            Join Omega to create and manage tournaments
+          </p>
         </div>
 
         {/* Registration Form */}
@@ -108,11 +124,13 @@ export default function RegisterPage() {
                   <Input
                     id="username"
                     placeholder="username"
-                    {...form.register('username')}
+                    {...form.register("username")}
                     disabled={isLoading}
                   />
                   {form.formState.errors.username && (
-                    <p className="text-sm text-red-500">{form.formState.errors.username.message}</p>
+                    <p className="text-sm text-red-500">
+                      {form.formState.errors.username.message}
+                    </p>
                   )}
                 </div>
 
@@ -121,11 +139,13 @@ export default function RegisterPage() {
                   <Input
                     id="displayName"
                     placeholder="Your Name"
-                    {...form.register('displayName')}
+                    {...form.register("displayName")}
                     disabled={isLoading}
                   />
                   {form.formState.errors.displayName && (
-                    <p className="text-sm text-red-500">{form.formState.errors.displayName.message}</p>
+                    <p className="text-sm text-red-500">
+                      {form.formState.errors.displayName.message}
+                    </p>
                   )}
                 </div>
               </div>
@@ -136,11 +156,13 @@ export default function RegisterPage() {
                   id="email"
                   type="email"
                   placeholder="Enter your email"
-                  {...form.register('email')}
+                  {...form.register("email")}
                   disabled={isLoading}
                 />
                 {form.formState.errors.email && (
-                  <p className="text-sm text-red-500">{form.formState.errors.email.message}</p>
+                  <p className="text-sm text-red-500">
+                    {form.formState.errors.email.message}
+                  </p>
                 )}
               </div>
 
@@ -149,9 +171,9 @@ export default function RegisterPage() {
                 <div className="relative">
                   <Input
                     id="password"
-                    type={showPassword ? 'text' : 'password'}
+                    type={showPassword ? "text" : "password"}
                     placeholder="Create a strong password"
-                    {...form.register('password')}
+                    {...form.register("password")}
                     disabled={isLoading}
                   />
                   <Button
@@ -169,10 +191,13 @@ export default function RegisterPage() {
                   </Button>
                 </div>
                 {form.formState.errors.password && (
-                  <p className="text-sm text-red-500">{form.formState.errors.password.message}</p>
+                  <p className="text-sm text-red-500">
+                    {form.formState.errors.password.message}
+                  </p>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  Password must contain at least 8 characters with uppercase, lowercase, and numbers
+                  Password must contain at least 8 characters with uppercase,
+                  lowercase, and numbers
                 </p>
               </div>
 
@@ -190,7 +215,8 @@ export default function RegisterPage() {
 
             <div className="mt-4">
               <p className="text-xs text-muted-foreground text-center">
-                By creating an account, you agree to our Terms of Service and Privacy Policy
+                By creating an account, you agree to our Terms of Service and
+                Privacy Policy
               </p>
             </div>
           </CardContent>
@@ -200,8 +226,13 @@ export default function RegisterPage() {
         <Card>
           <CardContent className="pt-6">
             <div className="text-center text-sm">
-              <span className="text-muted-foreground">Already have an account? </span>
-              <Link href="/login" className="text-primary font-medium hover:underline">
+              <span className="text-muted-foreground">
+                Already have an account?{" "}
+              </span>
+              <Link
+                href="/login"
+                className="text-primary font-medium hover:underline"
+              >
                 Sign in here
               </Link>
             </div>
@@ -219,5 +250,5 @@ export default function RegisterPage() {
         </Card>
       </div>
     </div>
-  )
+  );
 }

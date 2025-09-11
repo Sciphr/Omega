@@ -22,7 +22,15 @@ export const useTournamentStore = create(
     createTournament: async (tournamentData) => {
       set({ loading: true, error: null })
       try {
-        const result = await TournamentService.createTournament(tournamentData)
+        const response = await fetch('/api/tournaments', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(tournamentData),
+        })
+
+        const result = await response.json()
         
         if (result.success) {
           set(state => ({
@@ -43,7 +51,13 @@ export const useTournamentStore = create(
     fetchTournaments: async (filters = {}) => {
       set({ loading: true, error: null })
       try {
-        const result = await TournamentService.getTournaments(filters)
+        const params = new URLSearchParams()
+        Object.entries(filters).forEach(([key, value]) => {
+          if (value) params.append(key, value)
+        })
+        
+        const response = await fetch(`/api/tournaments?${params}`)
+        const result = await response.json()
         
         if (result.success) {
           set({ tournaments: result.tournaments, loading: false })

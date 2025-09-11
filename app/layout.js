@@ -1,6 +1,7 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Navigation, Footer } from "@/components/navigation";
+import { AuthProvider } from "@/components/auth-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,9 +14,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "BracketForge - Tournament Bracket Generator",
-  description: "Create and manage professional tournament brackets with real-time updates, game-specific features, and comprehensive participant management.",
-  keywords: "tournament, bracket, esports, gaming, competition, management, league of legends, smash bros, cs2, valorant",
+  title: "Omega - Tournament Bracket Generator",
+  description:
+    "Create and manage professional tournament brackets with real-time updates, game-specific features, and comprehensive participant management.",
+  keywords:
+    "tournament, bracket, esports, gaming, competition, management, league of legends, smash bros, cs2, valorant",
 };
 
 export default function RootLayout({ children }) {
@@ -24,9 +27,11 @@ export default function RootLayout({ children }) {
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <Navigation />
-        <main>{children}</main>
-        <Footer />
+        <AuthProvider>
+          <Navigation />
+          <main>{children}</main>
+          <Footer />
+        </AuthProvider>
       </body>
     </html>
   );

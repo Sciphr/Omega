@@ -22,7 +22,8 @@ export const useAuthStore = create((set, get) => ({
       })
 
       // Listen for auth changes
-      supabase.auth.onAuthStateChange((_event, session) => {
+      supabase.auth.onAuthStateChange((event, session) => {
+        console.log('Auth state changed:', event, session?.user)
         set({ 
           session, 
           user: session?.user || null,
@@ -48,7 +49,20 @@ export const useAuthStore = create((set, get) => ({
 
       if (error) throw error
 
-      set({ loading: false })
+      // Immediately set the user state if sign up was successful
+      console.log('Sign up response:', data)
+      if (data.user && data.session) {
+        console.log('Setting user state after signup:', data.user)
+        set({ 
+          user: data.user, 
+          session: data.session, 
+          loading: false 
+        })
+      } else {
+        console.log('No session after signup, user may need to confirm email')
+        set({ loading: false })
+      }
+
       return { success: true, data }
     } catch (error) {
       set({ loading: false })
@@ -66,7 +80,20 @@ export const useAuthStore = create((set, get) => ({
 
       if (error) throw error
 
-      set({ loading: false })
+      // Immediately set the user state if sign in was successful
+      console.log('Sign in response:', data)
+      if (data.user && data.session) {
+        console.log('Setting user state after signin:', data.user)
+        set({ 
+          user: data.user, 
+          session: data.session, 
+          loading: false 
+        })
+      } else {
+        console.log('No session after signin')
+        set({ loading: false })
+      }
+
       return { success: true, data }
     } catch (error) {
       set({ loading: false })

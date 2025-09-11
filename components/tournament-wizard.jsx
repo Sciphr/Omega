@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { useAuthStore } from '@/stores/auth-store'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -30,6 +31,62 @@ export function TournamentWizard({ onComplete }) {
   const [currentStep, setCurrentStep] = useState(0)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const router = useRouter()
+  const { user, loading, initialized } = useAuthStore()
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/login?redirect=/create')
+    }
+  }, [user, loading, router])
+
+  // Add a timeout to prevent infinite loading
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (loading) {
+        console.warn('Auth loading timeout - forcing show of auth prompt')
+      }
+    }, 5000) // 5 second timeout
+
+    return () => clearTimeout(timeout)
+  }, [loading])
+
+  // Show loading while checking auth (with timeout)
+  if (loading && !initialized) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Checking authentication...</p>
+          <p className="text-xs text-muted-foreground mt-2">
+            If this takes too long, try refreshing the page
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show login prompt if not authenticated
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center max-w-md">
+          <h2 className="text-2xl font-bold mb-4">Authentication Required</h2>
+          <p className="text-muted-foreground mb-6">
+            You need to be signed in to create tournaments. This allows you to manage participants, start tournaments, and track results.
+          </p>
+          <div className="space-x-4">
+            <Button onClick={() => router.push('/login?redirect=/create')}>
+              Sign In
+            </Button>
+            <Button variant="outline" onClick={() => router.push('/register?redirect=/create')}>
+              Create Account
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
   
   const form = useForm({
     resolver: zodResolver(createTournamentSchema),
@@ -51,43 +108,81 @@ export function TournamentWizard({ onComplete }) {
         scoreConfirmationRequired: true,
         checkInRequired: false,
         rules: '',
-        prizeInfo: ''
+        prizeInfo: '',
+        enableDraftBan: false,
+        draftBanSettings: {
+          enableBans: true,
+          enableDrafts: true,
+          bansPerSide: 3,
+          draftsPerSide: 5,
+          banTimer: 30,
+          draftTimer: 30,
+          alternatingOrder: true
+        }
       }
     }
   })
   
   const watchedValues = form.watch()
-  const currentGame = GAME_TEMPLATES[watchedValues.game]
+  const currentGame = Object.values(GAME_TEMPLATES).find(g => g.id === watchedValues.game)
   const duration = calculateTournamentDuration(watchedValues.maxParticipants, watchedValues.format)
   
-  const nextStep = () => {
+  const nextStep = async (e) => {
+    e?.preventDefault()
+    e?.stopPropagation()
+    
     if (currentStep < STEPS.length - 1) {
       setCurrentStep(currentStep + 1)
     }
   }
   
-  const prevStep = () => {
+  const prevStep = (e) => {
+    e?.preventDefault()
+    e?.stopPropagation()
+    
     if (currentStep > 0) {
       setCurrentStep(currentStep - 1)
     }
   }
   
   const onSubmit = async (data) => {
+    console.log('onSubmit called on step:', currentStep, 'of', STEPS.length - 1)
+    
+    // Only allow submission on the final step
+    if (currentStep !== STEPS.length - 1) {
+      console.log('Preventing submission - not on final step')
+      return
+    }
+    
     setIsSubmitting(true)
     try {
-      // Here you would create the tournament
       console.log('Creating tournament:', data)
       
-      // Mock API call
-      await new Promise(resolve => setTimeout(resolve, 2000))
-      
-      if (onComplete) {
-        onComplete(data)
+      const response = await fetch('/api/tournaments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        console.log('Tournament created successfully:', result.tournament)
+        
+        if (onComplete) {
+          onComplete(result.tournament)
+        } else {
+          router.push(result.url || '/tournaments')
+        }
       } else {
-        router.push('/tournaments')
+        console.error('Failed to create tournament:', result.error)
+        form.setError('root', { message: result.error })
       }
     } catch (error) {
       console.error('Failed to create tournament:', error)
+      form.setError('root', { message: 'An unexpected error occurred' })
     } finally {
       setIsSubmitting(false)
     }
@@ -145,7 +240,12 @@ export function TournamentWizard({ onComplete }) {
         </div>
       </div>
       
-      <form onSubmit={form.handleSubmit(onSubmit)}>
+      <form onSubmit={form.handleSubmit(onSubmit)} onKeyDown={(e) => {
+        // Prevent form submission on Enter key unless on final step
+        if (e.key === 'Enter' && currentStep !== STEPS.length - 1) {
+          e.preventDefault()
+        }
+      }}>
         <Card>
           <CardContent className="p-6">
             {currentStep === 0 && (
@@ -217,10 +317,7 @@ export function TournamentWizard({ onComplete }) {
                       <SelectContent>
                         {Object.values(GAME_TEMPLATES).map((game) => (
                           <SelectItem key={game.id} value={game.id}>
-                            <div className="flex items-center space-x-2">
-                              <span>{game.name}</span>
-                              {game.hasDraftBan && <Badge variant="secondary">Draft/Ban</Badge>}
-                            </div>
+                            <span>{game.name}</span>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -236,9 +333,6 @@ export function TournamentWizard({ onComplete }) {
                       <div className="text-sm text-muted-foreground space-y-1">
                         <p>Team Size: {currentGame.teamSize === 1 ? 'Individual' : `${currentGame.teamSize} players`}</p>
                         <p>Default Format: {currentGame.defaultFormat.toUpperCase()}</p>
-                        {currentGame.hasDraftBan && (
-                          <p>Features: Draft/Ban system available</p>
-                        )}
                       </div>
                     </Card>
                   )}
@@ -451,6 +545,100 @@ export function TournamentWizard({ onComplete }) {
                       </label>
                     </div>
                   </div>
+
+                  <Separator />
+
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        {...form.register('settings.enableDraftBan')}
+                        className="rounded"
+                      />
+                      <h4 className="font-medium">Enable Draft/Ban Phase</h4>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Add a strategic draft and ban phase before matches begin. Perfect for character selection, map bans, or any pre-match strategy.
+                    </p>
+
+                    {watchedValues.settings?.enableDraftBan && (
+                      <Card className="p-4 bg-gradient-to-br from-primary/5 to-accent/5 border-primary/20">
+                        <div className="space-y-4">
+                          <h5 className="font-medium text-sm">Draft/Ban Configuration</h5>
+                          
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <Label htmlFor="bansPerSide" className="text-xs">Bans per side</Label>
+                              <Input
+                                id="bansPerSide"
+                                type="number"
+                                min="0"
+                                max="10"
+                                {...form.register('settings.draftBanSettings.bansPerSide', { valueAsNumber: true })}
+                                className="mt-1"
+                              />
+                            </div>
+                            
+                            <div>
+                              <Label htmlFor="draftsPerSide" className="text-xs">Picks per side</Label>
+                              <Input
+                                id="draftsPerSide"
+                                type="number"
+                                min="1"
+                                max="10"
+                                {...form.register('settings.draftBanSettings.draftsPerSide', { valueAsNumber: true })}
+                                className="mt-1"
+                              />
+                            </div>
+                            
+                            <div>
+                              <Label htmlFor="banTimer" className="text-xs">Ban timer (seconds)</Label>
+                              <Input
+                                id="banTimer"
+                                type="number"
+                                min="10"
+                                max="120"
+                                {...form.register('settings.draftBanSettings.banTimer', { valueAsNumber: true })}
+                                className="mt-1"
+                              />
+                            </div>
+                            
+                            <div>
+                              <Label htmlFor="draftTimer" className="text-xs">Pick timer (seconds)</Label>
+                              <Input
+                                id="draftTimer"
+                                type="number"
+                                min="10"
+                                max="120"
+                                {...form.register('settings.draftBanSettings.draftTimer', { valueAsNumber: true })}
+                                className="mt-1"
+                              />
+                            </div>
+                          </div>
+                          
+                          <div className="grid gap-3">
+                            <label className="flex items-center space-x-2">
+                              <input
+                                type="checkbox"
+                                {...form.register('settings.draftBanSettings.enableBans')}
+                                className="rounded"
+                              />
+                              <span className="text-sm">Enable ban phase</span>
+                            </label>
+                            
+                            <label className="flex items-center space-x-2">
+                              <input
+                                type="checkbox"
+                                {...form.register('settings.draftBanSettings.alternatingOrder')}
+                                className="rounded"
+                              />
+                              <span className="text-sm">Alternating turn order</span>
+                            </label>
+                          </div>
+                        </div>
+                      </Card>
+                    )}
+                  </div>
                   
                   <Card className="p-4 bg-muted">
                     <h4 className="font-semibold mb-2">Tournament Summary</h4>
@@ -460,6 +648,12 @@ export function TournamentWizard({ onComplete }) {
                       <p><strong>Format:</strong> {watchedValues.format?.replace('_', ' ') || 'Single Elimination'}</p>
                       <p><strong>Participants:</strong> Up to {watchedValues.maxParticipants}</p>
                       <p><strong>Match Format:</strong> {watchedValues.settings?.matchFormat?.toUpperCase() || 'BO1'}</p>
+                      <p><strong>Draft/Ban:</strong> {watchedValues.settings?.enableDraftBan ? 'Enabled' : 'Disabled'}</p>
+                      {watchedValues.settings?.enableDraftBan && (
+                        <p className="text-xs text-muted-foreground ml-4">
+                          {watchedValues.settings?.draftBanSettings?.bansPerSide || 0} bans, {watchedValues.settings?.draftBanSettings?.draftsPerSide || 0} picks per side
+                        </p>
+                      )}
                       {duration && (
                         <p><strong>Estimated Duration:</strong> {duration.estimatedHours} hours</p>
                       )}
@@ -470,6 +664,12 @@ export function TournamentWizard({ onComplete }) {
             )}
           </CardContent>
         </Card>
+        
+        {form.formState.errors.root && (
+          <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-md">
+            <p className="text-sm text-red-600">{form.formState.errors.root.message}</p>
+          </div>
+        )}
         
         <div className="flex justify-between mt-6">
           <Button
