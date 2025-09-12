@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
-    "start": "next start",
+    "start": "next start -p 3200",
     "lint": "eslint",
     "check-db": "node scripts/check-database.js"
   },
