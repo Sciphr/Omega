@@ -33,7 +33,10 @@ import {
   Trash2,
   Target,
   ArrowRight,
-  Shuffle
+  Shuffle,
+  CheckCircle,
+  XCircle,
+  Loader2
 } from 'lucide-react'
 import { GAME_TEMPLATES, TOURNAMENT_STATUS, TOURNAMENT_FORMAT } from '@/lib/types'
 import { BracketGenerator } from '@/lib/bracket-utils'
@@ -90,7 +93,16 @@ export default function TournamentPage() {
         const result = await response.json()
         
         if (result.success) {
-          setTournament(result.tournament)
+          // Transform participant data to ensure UI compatibility
+          const transformedTournament = {
+            ...result.tournament,
+            participants: (result.tournament.participants || []).map(p => ({
+              ...p,
+              participantName: p.participant_name || p.participantName,
+              participant_name: p.participant_name || p.participantName
+            }))
+          }
+          setTournament(transformedTournament)
           
           // Generate bracket visualization if tournament has started
           if (result.tournament.status === 'in_progress' && result.tournament.participants?.length >= 4) {
@@ -99,14 +111,36 @@ export default function TournamentPage() {
             )
             setBracket(generatedBracket)
           } else if (result.tournament.status === 'registration') {
-            // Generate placeholder bracket with empty slots
-            const placeholders = Array.from({ length: result.tournament.max_participants }, (_, i) => ({
-              id: `placeholder-${i + 1}`,
-              participantName: `Participant ${i + 1}`,
-              seed: i + 1,
-              status: 'pending'
-            }))
-            const generatedBracket = BracketGenerator.generateSingleElimination(placeholders)
+            // Generate bracket with mix of real participants and placeholders
+            const maxParticipants = result.tournament.max_participants
+            const assignedParticipants = result.tournament.participants?.filter(p => p.seed) || []
+            
+            // Create array for all bracket positions
+            const bracketParticipants = Array.from({ length: maxParticipants }, (_, i) => {
+              const seed = i + 1
+              
+              // Find participant assigned to this seed
+              const assignedParticipant = assignedParticipants.find(p => p.seed === seed)
+              
+              if (assignedParticipant) {
+                return {
+                  id: assignedParticipant.id,
+                  participantName: assignedParticipant.participant_name,
+                  seed: seed,
+                  status: assignedParticipant.status
+                }
+              } else {
+                // Use placeholder for unassigned positions
+                return {
+                  id: `placeholder-${seed}`,
+                  participantName: `Participant ${seed}`,
+                  seed: seed,
+                  status: 'pending'
+                }
+              }
+            })
+            
+            const generatedBracket = BracketGenerator.generateSingleElimination(bracketParticipants)
             setBracket(generatedBracket)
           }
         } else {
@@ -359,21 +393,65 @@ export default function TournamentPage() {
 
           <TabsContent value="participants">
             <ParticipantsList 
-              participants={tournament.participants} 
+              participants={tournament.participants || []} 
               tournament={tournament}
               bracket={bracket}
               isAdmin={isAdmin}
               onParticipantAdded={(newParticipant) => {
+                // Ensure the new participant has proper data transformation
+                const transformedParticipant = {
+                  ...newParticipant,
+                  participantName: newParticipant.participant_name || newParticipant.participantName,
+                  participant_name: newParticipant.participant_name || newParticipant.participantName
+                }
+                
                 setTournament(prev => ({
                   ...prev,
-                  participants: [...prev.participants, newParticipant]
+                  participants: [...(prev.participants || []), transformedParticipant]
                 }))
               }}
               onParticipantRemoved={(participantId) => {
-                setTournament(prev => ({
-                  ...prev,
-                  participants: prev.participants.filter(p => p.id !== participantId)
-                }))
+                setTournament(prev => {
+                  const updatedParticipants = (prev.participants || []).filter(p => p.id !== participantId)
+                  return {
+                    ...prev,
+                    participants: updatedParticipants
+                  }
+                })
+                
+                // Also update bracket to remove the participant and restore placeholder
+                if (bracket && bracket.rounds && bracket.rounds.length > 0) {
+                  const updatedBracket = { ...bracket }
+                  const firstRound = updatedBracket.rounds[0]
+                  
+                  firstRound.matches.forEach((match, matchIndex) => {
+                    // Check participant 1
+                    if (match.participant1 && match.participant1.id === participantId) {
+                      const seed = matchIndex * 2 + 1
+                      match.participant1 = { 
+                        id: `placeholder-${seed}`, 
+                        name: `Participant ${seed}`,
+                        participantName: `Participant ${seed}`,
+                        seed: seed,
+                        status: 'pending'
+                      }
+                    }
+                    
+                    // Check participant 2
+                    if (match.participant2 && match.participant2.id === participantId) {
+                      const seed = matchIndex * 2 + 2
+                      match.participant2 = { 
+                        id: `placeholder-${seed}`, 
+                        name: `Participant ${seed}`,
+                        participantName: `Participant ${seed}`,
+                        seed: seed,
+                        status: 'pending'
+                      }
+                    }
+                  })
+                  
+                  setBracket(updatedBracket)
+                }
               }}
               onBracketUpdated={(updatedBracket) => {
                 setBracket(updatedBracket)
@@ -419,9 +497,22 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
   const [isSearching, setIsSearching] = useState(false)
   const [manualName, setManualName] = useState('')
   const [addMode, setAddMode] = useState('search') // 'search' or 'manual'
+  
+  // UI feedback states
+  const [showRandomizeConfirm, setShowRandomizeConfirm] = useState(false)
+  const [showClearConfirm, setShowClearConfirm] = useState(false)
+  const [isRandomizing, setIsRandomizing] = useState(false)
+  const [isClearing, setIsClearing] = useState(false)
+  const [actionStatus, setActionStatus] = useState(null) // { type: 'success'|'error', message: string }
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false)
+  const [participantToRemove, setParticipantToRemove] = useState(null)
 
   const activeParticipants = participants.filter(p => p.status === 'active')
   const eliminatedParticipants = participants.filter(p => p.status === 'eliminated')
+  
+  // Debug logging
+  console.log('ParticipantsList - participants:', participants)
+  console.log('ParticipantsList - activeParticipants:', activeParticipants)
 
   // Get available bracket positions
   const getAvailableBracketPositions = () => {
@@ -511,71 +602,281 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
   }
 
   // Assign participant to bracket position
-  const handleAssignToBracket = (participant, targetPosition) => {
+  const handleAssignToBracket = async (participant, targetPosition) => {
     if (!bracket || !onBracketUpdated) return
     
-    const updatedBracket = { ...bracket }
-    const firstRound = updatedBracket.rounds[0]
-    const targetMatch = firstRound.matches[targetPosition.matchIndex]
-    
-    // Remove participant from any existing position first (ignore placeholders)
-    firstRound.matches.forEach((match, matchIndex) => {
-      if (match.participant1 && 
-          !match.participant1.name?.startsWith('Participant ') &&
-          !match.participant1.participantName?.startsWith('Participant ') &&
-          match.participant1.name !== 'TBD' &&
-          (match.participant1.name === participant.participantName || 
-           match.participant1.participantName === participant.participantName ||
-           match.participant1.id === participant.id)) {
-        // Restore original placeholder name
-        const seed = matchIndex * 2 + 1
-        match.participant1 = { 
-          id: `placeholder-${seed}`, 
-          name: `Participant ${seed}`,
-          participantName: `Participant ${seed}`,
-          seed: seed,
-          status: 'pending'
+    try {
+      // Update seed in database
+      const response = await fetch(`/api/tournaments/${tournament.id}/participants/${participant.id}/seed`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seed: targetPosition.seed })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        console.error('Failed to update participant seed:', errorData.error)
+        setActionStatus({ 
+          type: 'error', 
+          message: 'Failed to assign participant to bracket position' 
+        })
+        setTimeout(() => setActionStatus(null), 3000)
+        return
+      }
+
+      // Update local state
+      const updatedBracket = { ...bracket }
+      const firstRound = updatedBracket.rounds[0]
+      const targetMatch = firstRound.matches[targetPosition.matchIndex]
+      
+      // Remove participant from any existing position first (ignore placeholders)
+      firstRound.matches.forEach((match, matchIndex) => {
+        if (match.participant1 && 
+            !match.participant1.name?.startsWith('Participant ') &&
+            !match.participant1.participantName?.startsWith('Participant ') &&
+            match.participant1.name !== 'TBD' &&
+            (match.participant1.name === participant.participantName || 
+             match.participant1.participantName === participant.participantName ||
+             match.participant1.id === participant.id)) {
+          // Restore original placeholder name
+          const seed = matchIndex * 2 + 1
+          match.participant1 = { 
+            id: `placeholder-${seed}`, 
+            name: `Participant ${seed}`,
+            participantName: `Participant ${seed}`,
+            seed: seed,
+            status: 'pending'
+          }
+        }
+        if (match.participant2 && 
+            !match.participant2.name?.startsWith('Participant ') &&
+            !match.participant2.participantName?.startsWith('Participant ') &&
+            match.participant2.name !== 'TBD' &&
+            (match.participant2.name === participant.participantName || 
+             match.participant2.participantName === participant.participantName ||
+             match.participant2.id === participant.id)) {
+          // Restore original placeholder name
+          const seed = matchIndex * 2 + 2
+          match.participant2 = { 
+            id: `placeholder-${seed}`, 
+            name: `Participant ${seed}`,
+            participantName: `Participant ${seed}`,
+            seed: seed,
+            status: 'pending'
+          }
+        }
+      })
+      
+      // Assign to new position (replacing placeholder or empty slot)
+      if (targetPosition.position === 1) {
+        targetMatch.participant1 = {
+          id: participant.id,
+          name: participant.participantName,
+          participantName: participant.participantName,
+          seed: targetPosition.seed
+        }
+      } else {
+        targetMatch.participant2 = {
+          id: participant.id,
+          name: participant.participantName,
+          participantName: participant.participantName,
+          seed: targetPosition.seed
         }
       }
-      if (match.participant2 && 
-          !match.participant2.name?.startsWith('Participant ') &&
-          !match.participant2.participantName?.startsWith('Participant ') &&
-          match.participant2.name !== 'TBD' &&
-          (match.participant2.name === participant.participantName || 
-           match.participant2.participantName === participant.participantName ||
-           match.participant2.id === participant.id)) {
-        // Restore original placeholder name
-        const seed = matchIndex * 2 + 2
-        match.participant2 = { 
-          id: `placeholder-${seed}`, 
-          name: `Participant ${seed}`,
-          participantName: `Participant ${seed}`,
-          seed: seed,
-          status: 'pending'
-        }
-      }
-    })
-    
-    // Assign to new position (replacing placeholder or empty slot)
-    if (targetPosition.position === 1) {
-      targetMatch.participant1 = {
-        id: participant.id,
-        name: participant.participantName,
-        participantName: participant.participantName,
-        seed: targetPosition.seed
-      }
-    } else {
-      targetMatch.participant2 = {
-        id: participant.id,
-        name: participant.participantName,
-        participantName: participant.participantName,
-        seed: targetPosition.seed
-      }
+      
+      onBracketUpdated(updatedBracket)
+      setShowAssignModal(false)
+      setSelectedParticipant(null)
+    } catch (error) {
+      console.error('Failed to assign participant:', error)
+      setActionStatus({ 
+        type: 'error', 
+        message: 'Failed to assign participant to bracket position' 
+      })
+      setTimeout(() => setActionStatus(null), 3000)
     }
-    
-    onBracketUpdated(updatedBracket)
-    setShowAssignModal(false)
-    setSelectedParticipant(null)
+  }
+
+  // Clear all participant assignments
+  const confirmClearAllAssignments = () => {
+    const assignedParticipants = activeParticipants.filter(p => getParticipantBracketPosition(p))
+    if (assignedParticipants.length === 0) return
+    setShowClearConfirm(true)
+  }
+
+  const handleClearAllAssignments = async () => {
+    if (!bracket || !onBracketUpdated) return
+
+    const assignedParticipants = activeParticipants.filter(p => getParticipantBracketPosition(p))
+    if (assignedParticipants.length === 0) return
+
+    setIsClearing(true)
+    setActionStatus(null)
+    setShowClearConfirm(false)
+
+    try {
+      // Remove seeds from all assigned participants in database
+      const clearPromises = assignedParticipants.map(async (participant) => {
+        const response = await fetch(`/api/tournaments/${tournament.id}/participants/${participant.id}/seed`, {
+          method: 'DELETE'
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(`Failed to clear ${participant.participantName}: ${errorData.error}`)
+        }
+
+        return participant
+      })
+
+      await Promise.all(clearPromises)
+
+      // Reset bracket to all placeholders
+      const updatedBracket = { ...bracket }
+      const firstRound = updatedBracket.rounds[0]
+
+      firstRound.matches.forEach((match, matchIndex) => {
+        const seed1 = matchIndex * 2 + 1
+        const seed2 = matchIndex * 2 + 2
+        
+        match.participant1 = {
+          id: `placeholder-${seed1}`,
+          name: `Participant ${seed1}`,
+          participantName: `Participant ${seed1}`,
+          seed: seed1,
+          status: 'pending'
+        }
+        
+        match.participant2 = {
+          id: `placeholder-${seed2}`,
+          name: `Participant ${seed2}`,
+          participantName: `Participant ${seed2}`,
+          seed: seed2,
+          status: 'pending'
+        }
+      })
+
+      onBracketUpdated(updatedBracket)
+      setActionStatus({ 
+        type: 'success', 
+        message: `Successfully cleared ${assignedParticipants.length} participant assignments!` 
+      })
+    } catch (error) {
+      console.error('Failed to clear assignments:', error)
+      setActionStatus({ 
+        type: 'error', 
+        message: `Failed to clear assignments: ${error.message}` 
+      })
+    } finally {
+      setIsClearing(false)
+      // Clear status message after 3 seconds
+      setTimeout(() => setActionStatus(null), 3000)
+    }
+  }
+
+  // Randomize all participant positions
+  const confirmRandomizePositions = () => {
+    if (activeParticipants.length === 0) return
+    setShowRandomizeConfirm(true)
+  }
+
+  const handleRandomizePositions = async () => {
+    if (!bracket || !onBracketUpdated || activeParticipants.length === 0) return
+
+    setIsRandomizing(true)
+    setActionStatus(null)
+    setShowRandomizeConfirm(false)
+
+    try {
+      // Get all available positions (1 through max tournament size)
+      const maxPositions = tournament.max_participants || 16
+      const availableSeeds = Array.from({ length: maxPositions }, (_, i) => i + 1)
+      
+      // Shuffle the available seeds
+      const shuffledSeeds = [...availableSeeds].sort(() => Math.random() - 0.5)
+      
+      // Update each participant's seed in the database
+      const updatePromises = activeParticipants.map(async (participant, index) => {
+        const newSeed = shuffledSeeds[index] // Assign first N shuffled seeds to participants
+        
+        const response = await fetch(`/api/tournaments/${tournament.id}/participants/${participant.id}/seed`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ seed: newSeed })
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(`Failed to update ${participant.participantName}: ${errorData.error}`)
+        }
+
+        return { participant, seed: newSeed }
+      })
+
+      const updatedParticipants = await Promise.all(updatePromises)
+
+      // Update bracket state
+      const updatedBracket = { ...bracket }
+      const firstRound = updatedBracket.rounds[0]
+
+      // Reset all positions to placeholders first
+      firstRound.matches.forEach((match, matchIndex) => {
+        const seed1 = matchIndex * 2 + 1
+        const seed2 = matchIndex * 2 + 2
+        
+        match.participant1 = {
+          id: `placeholder-${seed1}`,
+          name: `Participant ${seed1}`,
+          participantName: `Participant ${seed1}`,
+          seed: seed1,
+          status: 'pending'
+        }
+        
+        match.participant2 = {
+          id: `placeholder-${seed2}`,
+          name: `Participant ${seed2}`,
+          participantName: `Participant ${seed2}`,
+          seed: seed2,
+          status: 'pending'
+        }
+      })
+
+      // Place participants in their new positions
+      updatedParticipants.forEach(({ participant, seed }) => {
+        const matchIndex = Math.floor((seed - 1) / 2)
+        const position = (seed - 1) % 2 + 1
+        const targetMatch = firstRound.matches[matchIndex]
+
+        const participantData = {
+          id: participant.id,
+          name: participant.participantName,
+          participantName: participant.participantName,
+          seed: seed
+        }
+
+        if (position === 1) {
+          targetMatch.participant1 = participantData
+        } else {
+          targetMatch.participant2 = participantData
+        }
+      })
+
+      onBracketUpdated(updatedBracket)
+      setActionStatus({ 
+        type: 'success', 
+        message: `Successfully randomized ${activeParticipants.length} participants!` 
+      })
+    } catch (error) {
+      console.error('Failed to randomize positions:', error)
+      setActionStatus({ 
+        type: 'error', 
+        message: `Failed to randomize positions: ${error.message}` 
+      })
+    } finally {
+      setIsRandomizing(false)
+      // Clear status message after 3 seconds
+      setTimeout(() => setActionStatus(null), 3000)
+    }
   }
 
   const handleSearchUsers = async (query) => {
@@ -607,7 +908,7 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
         body: JSON.stringify({
           participantName: participant.name || participant.participantName,
           userId: participant.userId || null,
-          seed: activeParticipants.length + 1
+          seed: null // Don't auto-assign seed - let user manually assign to bracket positions
         })
       })
 
@@ -624,16 +925,23 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
     }
   }
 
-  const handleRemoveParticipant = async (participantId) => {
-    if (!confirm('Are you sure you want to remove this participant?')) return
+  const confirmRemoveParticipant = (participant) => {
+    setParticipantToRemove(participant)
+    setShowRemoveConfirm(true)
+  }
+
+  const handleRemoveParticipant = async () => {
+    if (!participantToRemove) return
 
     try {
-      const response = await fetch(`/api/tournaments/${tournament.id}/participants/${participantId}`, {
+      const response = await fetch(`/api/tournaments/${tournament.id}/participants/${participantToRemove.id}`, {
         method: 'DELETE'
       })
 
       if (response.ok) {
-        onParticipantRemoved(participantId)
+        onParticipantRemoved(participantToRemove.id)
+        setShowRemoveConfirm(false)
+        setParticipantToRemove(null)
       }
     } catch (error) {
       console.error('Failed to remove participant:', error)
@@ -650,10 +958,35 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
               <span>Active Participants ({activeParticipants.length})</span>
             </CardTitle>
             {isAdmin && (
-              <Button onClick={() => setShowAddModal(true)} size="sm">
-                <UserPlus className="h-4 w-4 mr-2" />
-                Add Participant
-              </Button>
+              <div className="flex space-x-2">
+                {activeParticipants.length > 0 && (
+                  <>
+                    {activeParticipants.some(p => getParticipantBracketPosition(p)) && (
+                      <Button 
+                        onClick={confirmClearAllAssignments} 
+                        size="sm" 
+                        variant="outline"
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        <X className="h-4 w-4 mr-2" />
+                        Clear All
+                      </Button>
+                    )}
+                    <Button 
+                      onClick={confirmRandomizePositions} 
+                      size="sm" 
+                      variant="outline"
+                    >
+                      <Shuffle className="h-4 w-4 mr-2" />
+                      Randomize Positions
+                    </Button>
+                  </>
+                )}
+                <Button onClick={() => setShowAddModal(true)} size="sm">
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  Add Participant
+                </Button>
+              </div>
             )}
           </div>
         </CardHeader>
@@ -698,7 +1031,7 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleRemoveParticipant(participant.id)}
+                        onClick={() => confirmRemoveParticipant(participant)}
                         title="Remove participant"
                       >
                         <Trash2 className="h-4 w-4 text-red-500" />
@@ -940,51 +1273,76 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
                 {getParticipantBracketPosition(selectedParticipant) && (
                   <Button 
                     variant="outline"
-                    onClick={() => {
-                      // Remove from current position
-                      const updatedBracket = { ...bracket }
-                      const firstRound = updatedBracket.rounds[0]
-                      
-                      firstRound.matches.forEach((match, matchIndex) => {
-                        if (match.participant1 && 
-                            !match.participant1.name?.startsWith('Participant ') &&
-                            !match.participant1.participantName?.startsWith('Participant ') &&
-                            match.participant1.name !== 'TBD' &&
-                            (match.participant1.name === selectedParticipant.participantName || 
-                             match.participant1.participantName === selectedParticipant.participantName ||
-                             match.participant1.id === selectedParticipant.id)) {
-                          // Restore original placeholder name
-                          const seed = matchIndex * 2 + 1
-                          match.participant1 = { 
-                            id: `placeholder-${seed}`, 
-                            name: `Participant ${seed}`,
-                            participantName: `Participant ${seed}`,
-                            seed: seed,
-                            status: 'pending'
-                          }
+                    onClick={async () => {
+                      try {
+                        // Remove seed from database
+                        const response = await fetch(`/api/tournaments/${tournament.id}/participants/${selectedParticipant.id}/seed`, {
+                          method: 'DELETE'
+                        })
+
+                        if (!response.ok) {
+                          const errorData = await response.json()
+                          console.error('Failed to remove participant seed:', errorData.error)
+                          setActionStatus({ 
+                            type: 'error', 
+                            message: 'Failed to remove participant from bracket' 
+                          })
+                          setTimeout(() => setActionStatus(null), 3000)
+                          return
                         }
-                        if (match.participant2 && 
-                            !match.participant2.name?.startsWith('Participant ') &&
-                            !match.participant2.participantName?.startsWith('Participant ') &&
-                            match.participant2.name !== 'TBD' &&
-                            (match.participant2.name === selectedParticipant.participantName || 
-                             match.participant2.participantName === selectedParticipant.participantName ||
-                             match.participant2.id === selectedParticipant.id)) {
-                          // Restore original placeholder name
-                          const seed = matchIndex * 2 + 2
-                          match.participant2 = { 
-                            id: `placeholder-${seed}`, 
-                            name: `Participant ${seed}`,
-                            participantName: `Participant ${seed}`,
-                            seed: seed,
-                            status: 'pending'
+
+                        // Remove from current position
+                        const updatedBracket = { ...bracket }
+                        const firstRound = updatedBracket.rounds[0]
+                        
+                        firstRound.matches.forEach((match, matchIndex) => {
+                          if (match.participant1 && 
+                              !match.participant1.name?.startsWith('Participant ') &&
+                              !match.participant1.participantName?.startsWith('Participant ') &&
+                              match.participant1.name !== 'TBD' &&
+                              (match.participant1.name === selectedParticipant.participantName || 
+                               match.participant1.participantName === selectedParticipant.participantName ||
+                               match.participant1.id === selectedParticipant.id)) {
+                            // Restore original placeholder name
+                            const seed = matchIndex * 2 + 1
+                            match.participant1 = { 
+                              id: `placeholder-${seed}`, 
+                              name: `Participant ${seed}`,
+                              participantName: `Participant ${seed}`,
+                              seed: seed,
+                              status: 'pending'
+                            }
                           }
-                        }
-                      })
-                      
-                      onBracketUpdated(updatedBracket)
-                      setShowAssignModal(false)
-                      setSelectedParticipant(null)
+                          if (match.participant2 && 
+                              !match.participant2.name?.startsWith('Participant ') &&
+                              !match.participant2.participantName?.startsWith('Participant ') &&
+                              match.participant2.name !== 'TBD' &&
+                              (match.participant2.name === selectedParticipant.participantName || 
+                               match.participant2.participantName === selectedParticipant.participantName ||
+                               match.participant2.id === selectedParticipant.id)) {
+                            // Restore original placeholder name
+                            const seed = matchIndex * 2 + 2
+                            match.participant2 = { 
+                              id: `placeholder-${seed}`, 
+                              name: `Participant ${seed}`,
+                              participantName: `Participant ${seed}`,
+                              seed: seed,
+                              status: 'pending'
+                            }
+                          }
+                        })
+                        
+                        onBracketUpdated(updatedBracket)
+                        setShowAssignModal(false)
+                        setSelectedParticipant(null)
+                      } catch (error) {
+                        console.error('Failed to remove participant from bracket:', error)
+                        setActionStatus({ 
+                          type: 'error', 
+                          message: 'Failed to remove participant from bracket' 
+                        })
+                        setTimeout(() => setActionStatus(null), 3000)
+                      }
                     }}
                   >
                     <X className="h-4 w-4 mr-2" />
@@ -995,6 +1353,128 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
                   Cancel
                 </Button>
               </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Status Message */}
+      {actionStatus && (
+        <div className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 ${
+          actionStatus.type === 'success' 
+            ? 'bg-green-50 border border-green-200 text-green-800' 
+            : 'bg-red-50 border border-red-200 text-red-800'
+        }`}>
+          <div className="flex items-center space-x-2">
+            {actionStatus.type === 'success' ? (
+              <CheckCircle className="h-5 w-5 text-green-600" />
+            ) : (
+              <XCircle className="h-5 w-5 text-red-600" />
+            )}
+            <span className="text-sm font-medium">{actionStatus.message}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Randomize Confirmation Modal */}
+      {showRandomizeConfirm && (
+        <Dialog open={showRandomizeConfirm} onOpenChange={setShowRandomizeConfirm}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Confirm Randomize Positions</DialogTitle>
+              <DialogDescription>
+                This will randomly assign all {activeParticipants.length} participants to bracket positions. Current assignments will be overwritten.
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="flex justify-end space-x-2 pt-4">
+              <Button variant="outline" onClick={() => setShowRandomizeConfirm(false)}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleRandomizePositions}
+                disabled={isRandomizing}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                {isRandomizing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Randomizing...
+                  </>
+                ) : (
+                  <>
+                    <Shuffle className="h-4 w-4 mr-2" />
+                    Randomize Positions
+                  </>
+                )}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Clear All Confirmation Modal */}
+      {showClearConfirm && (
+        <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Confirm Clear All Assignments</DialogTitle>
+              <DialogDescription>
+                This will remove all participants from their bracket positions and restore placeholders. This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="flex justify-end space-x-2 pt-4">
+              <Button variant="outline" onClick={() => setShowClearConfirm(false)}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleClearAllAssignments}
+                disabled={isClearing}
+                variant="destructive"
+              >
+                {isClearing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Clearing...
+                  </>
+                ) : (
+                  <>
+                    <X className="h-4 w-4 mr-2" />
+                    Clear All Assignments
+                  </>
+                )}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Remove Participant Confirmation Modal */}
+      {showRemoveConfirm && participantToRemove && (
+        <Dialog open={showRemoveConfirm} onOpenChange={setShowRemoveConfirm}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Confirm Remove Participant</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to remove <strong>{participantToRemove.participantName}</strong> from this tournament? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="flex justify-end space-x-2 pt-4">
+              <Button variant="outline" onClick={() => {
+                setShowRemoveConfirm(false)
+                setParticipantToRemove(null)
+              }}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleRemoveParticipant}
+                variant="destructive"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Remove Participant
+              </Button>
             </div>
           </DialogContent>
         </Dialog>

@@ -98,9 +98,14 @@ export async function POST(request, { params }) {
       participant: {
         id: participant.id,
         participantName: participant.participant_name,
+        participant_name: participant.participant_name, // Include both for compatibility
         userId: participant.user_id,
+        user_id: participant.user_id,
+        team_id: participant.team_id,
+        participant_type: participant.participant_type,
         seed: participant.seed,
-        status: participant.status
+        status: participant.status,
+        joined_at: participant.joined_at
       }
     })
   } catch (error) {
