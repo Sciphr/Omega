@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Link from "next/link";
 import {
   SingleEliminationBracket,
   DoubleEliminationBracket,
@@ -484,14 +485,23 @@ export function BracketVisualization({
               </div>
 
               <div className="flex gap-2">
-                <Button className="flex-1">
-                  <Clock className="h-4 w-4 mr-2" />
-                  Start Match
-                </Button>
-                <Button variant="outline" className="flex-1">
-                  <Trophy className="h-4 w-4 mr-2" />
-                  Report Score
-                </Button>
+                {selectedMatch?.id ? (
+                  <Link href={`/match/${selectedMatch.id}`} className="flex-1">
+                    <Button className="w-full">
+                      <Clock className="h-4 w-4 mr-2" />
+                      View Match
+                    </Button>
+                  </Link>
+                ) : (
+                  <Button 
+                    className="w-full" 
+                    disabled
+                    title="Match not available yet - tournament must be started first"
+                  >
+                    <Clock className="h-4 w-4 mr-2" />
+                    View Match
+                  </Button>
+                )}
               </div>
 
               <div className="pt-4 border-t">

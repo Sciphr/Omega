@@ -104,8 +104,16 @@ export default function TournamentPage() {
           }
           setTournament(transformedTournament)
           
-          // Generate bracket visualization if tournament has started
-          if (result.tournament.status === 'in_progress' && result.tournament.participants?.length >= 4) {
+          // Generate bracket visualization
+          if (result.tournament.status === 'in_progress' && result.tournament.matches?.length > 0) {
+            // Use real matches from database for in-progress tournaments
+            const bracketWithMatches = BracketGenerator.generateBracketFromMatches(
+              result.tournament.matches,
+              result.tournament.participants
+            )
+            setBracket(bracketWithMatches)
+          } else if (result.tournament.status === 'in_progress' && result.tournament.participants?.length >= 4) {
+            // Fallback: generate bracket from participants if no matches exist yet
             const generatedBracket = BracketGenerator.generateSingleElimination(
               result.tournament.participants
             )
@@ -229,7 +237,7 @@ export default function TournamentPage() {
 
   const gameTemplate = GAME_TEMPLATES[tournament.game]
   const canJoin = tournament.status === TOURNAMENT_STATUS.REGISTRATION && 
-                 tournament.currentParticipants < tournament.maxParticipants
+                 (tournament.current_participants || tournament.participants?.length || 0) < tournament.max_participants
 
   return (
     <div className="min-h-screen bg-background">
@@ -261,16 +269,16 @@ export default function TournamentPage() {
               <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                 <div className="flex items-center space-x-1">
                   <User className="h-4 w-4" />
-                  <span>by {tournament.creatorName}</span>
+                  <span>by {tournament.creator_name || 'Unknown'}</span>
                 </div>
                 <div className="flex items-center space-x-1">
                   <Calendar className="h-4 w-4" />
-                  <span>Created {new Date(tournament.createdAt).toLocaleDateString()}</span>
+                  <span>Created {new Date(tournament.created_at).toLocaleDateString()}</span>
                 </div>
-                {tournament.startedAt && (
+                {tournament.started_at && (
                   <div className="flex items-center space-x-1">
                     <Clock className="h-4 w-4" />
-                    <span>Started {new Date(tournament.startedAt).toLocaleDateString()}</span>
+                    <span>Started {new Date(tournament.started_at).toLocaleDateString()}</span>
                   </div>
                 )}
               </div>
@@ -316,7 +324,9 @@ export default function TournamentPage() {
           <Card>
             <CardContent className="p-4 text-center">
               <Users className="h-8 w-8 text-primary mx-auto mb-2" />
-              <div className="text-2xl font-bold">{tournament.currentParticipants}</div>
+              <div className="text-2xl font-bold">
+                {tournament.current_participants || tournament.participants?.length || 0} / {tournament.max_participants}
+              </div>
               <div className="text-sm text-muted-foreground">Participants</div>
             </CardContent>
           </Card>
@@ -1577,7 +1587,7 @@ function TournamentInfo({ tournament, gameTemplate }) {
           
           <div>
             <h4 className="font-semibold mb-2">Participants</h4>
-            <p>{tournament.currentParticipants} / {tournament.maxParticipants}</p>
+            <p>{tournament.current_participants || tournament.participants?.length || 0} / {tournament.max_participants}</p>
           </div>
         </CardContent>
       </Card>
