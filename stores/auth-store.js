@@ -14,6 +14,53 @@ export const useAuthStore = create((set, get) => ({
       // Get initial session
       const { data: { session } } = await supabase.auth.getSession()
       
+      // If user is logged in, ensure profile exists in users table
+      if (session?.user) {
+        try {
+          const { data: existingUser } = await supabase
+            .from('users')
+            .select('id')
+            .eq('id', session.user.id)
+            .single()
+          
+          if (!existingUser) {
+            // Create user profile if it doesn't exist
+            const baseUsername = session.user.user_metadata?.username || session.user.email.split('@')[0]
+            let username = baseUsername
+            let attempts = 0
+            
+            // Try to find a unique username
+            while (attempts < 10) {
+              const { data: existingUsername } = await supabase
+                .from('users')
+                .select('username')
+                .eq('username', username)
+                .single()
+              
+              if (!existingUsername) {
+                break // Username is available
+              }
+              
+              attempts++
+              username = `${baseUsername}${attempts}`
+            }
+            
+            await supabase
+              .from('users')
+              .insert({
+                id: session.user.id,
+                email: session.user.email,
+                username: username,
+                display_name: session.user.user_metadata?.display_name || session.user.user_metadata?.username || session.user.email.split('@')[0],
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              })
+          }
+        } catch (error) {
+          console.error('Error ensuring user profile exists:', error)
+        }
+      }
+      
       set({ 
         session, 
         user: session?.user || null, 

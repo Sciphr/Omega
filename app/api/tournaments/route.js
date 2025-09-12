@@ -95,12 +95,32 @@ export async function POST(request) {
     
     if (!existingUser) {
       // Create user profile if it doesn't exist
+      const baseUsername = user.user_metadata?.username || user.email.split('@')[0]
+      let username = baseUsername
+      let attempts = 0
+      
+      // Try to find a unique username
+      while (attempts < 10) {
+        const { data: existingUsername } = await supabase
+          .from('users')
+          .select('username')
+          .eq('username', username)
+          .single()
+        
+        if (!existingUsername) {
+          break // Username is available
+        }
+        
+        attempts++
+        username = `${baseUsername}${attempts}`
+      }
+      
       const { error: userError } = await supabase
         .from('users')
         .insert({
           id: user.id,
           email: user.email,
-          username: user.user_metadata?.username || user.email.split('@')[0],
+          username: username,
           display_name: user.user_metadata?.display_name || user.user_metadata?.username || user.email.split('@')[0],
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()

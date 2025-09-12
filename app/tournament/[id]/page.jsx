@@ -8,7 +8,10 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
-import { BracketVisualizationNew } from '@/components/bracket-visualization-new'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { BracketVisualization } from '@/components/bracket-visualization'
 import { 
   Trophy, 
   Users, 
@@ -22,7 +25,15 @@ import {
   Gamepad2,
   User,
   MapPin,
-  Award
+  Award,
+  Plus,
+  Search,
+  X,
+  UserPlus,
+  Trash2,
+  Target,
+  ArrowRight,
+  Shuffle
 } from 'lucide-react'
 import { GAME_TEMPLATES, TOURNAMENT_STATUS, TOURNAMENT_FORMAT } from '@/lib/types'
 import { BracketGenerator } from '@/lib/bracket-utils'
@@ -67,7 +78,7 @@ export default function TournamentPage() {
 
   // Mock user - replace with actual auth
   const currentUser = null
-  const isAdmin = false
+  const isAdmin = true // Set to true for testing participant management
 
   useEffect(() => {
     const loadTournament = async () => {
@@ -115,13 +126,29 @@ export default function TournamentPage() {
     }
   }, [params.id])
 
+  const [shareSuccess, setShareSuccess] = useState(false)
+
   const handleShareTournament = async () => {
     const url = window.location.href
     try {
       await navigator.clipboard.writeText(url)
-      // Show success toast
+      setShareSuccess(true)
+      setTimeout(() => setShareSuccess(false), 2000) // Reset after 2 seconds
     } catch (error) {
       console.error('Failed to copy URL:', error)
+      // Fallback for browsers that don't support clipboard API
+      try {
+        const textArea = document.createElement('textarea')
+        textArea.value = url
+        document.body.appendChild(textArea)
+        textArea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textArea)
+        setShareSuccess(true)
+        setTimeout(() => setShareSuccess(false), 2000)
+      } catch (fallbackError) {
+        console.error('Fallback copy failed:', fallbackError)
+      }
     }
   }
 
@@ -132,6 +159,7 @@ export default function TournamentPage() {
 
   const handleMatchClick = (match) => {
     console.log('Match clicked:', match)
+    // Match details are handled by the BracketVisualization component's modal
   }
 
   const handleReportScore = (scoreData) => {
@@ -217,8 +245,17 @@ export default function TournamentPage() {
             {/* Actions */}
             <div className="flex flex-col sm:flex-row gap-3">
               <Button variant="outline" onClick={handleShareTournament}>
-                <Share className="h-4 w-4 mr-2" />
-                Share
+                {shareSuccess ? (
+                  <>
+                    <Copy className="h-4 w-4 mr-2" />
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <Share className="h-4 w-4 mr-2" />
+                    Share
+                  </>
+                )}
               </Button>
               
               {canJoin && (
@@ -300,7 +337,7 @@ export default function TournamentPage() {
               </CardHeader>
               <CardContent>
                 {bracket ? (
-                  <BracketVisualizationNew
+                  <BracketVisualization
                     bracket={bracket}
                     tournament={tournament}
                     onMatchClick={handleMatchClick}
@@ -321,7 +358,27 @@ export default function TournamentPage() {
           </TabsContent>
 
           <TabsContent value="participants">
-            <ParticipantsList participants={tournament.participants} />
+            <ParticipantsList 
+              participants={tournament.participants} 
+              tournament={tournament}
+              bracket={bracket}
+              isAdmin={isAdmin}
+              onParticipantAdded={(newParticipant) => {
+                setTournament(prev => ({
+                  ...prev,
+                  participants: [...prev.participants, newParticipant]
+                }))
+              }}
+              onParticipantRemoved={(participantId) => {
+                setTournament(prev => ({
+                  ...prev,
+                  participants: prev.participants.filter(p => p.id !== participantId)
+                }))
+              }}
+              onBracketUpdated={(updatedBracket) => {
+                setBracket(updatedBracket)
+              }}
+            />
           </TabsContent>
 
           <TabsContent value="matches">
@@ -333,6 +390,7 @@ export default function TournamentPage() {
           </TabsContent>
         </Tabs>
       </div>
+
     </div>
   )
 }
@@ -352,40 +410,304 @@ function StatusBadge({ status }) {
   }
 }
 
-function ParticipantsList({ participants }) {
+function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdded, onParticipantRemoved, bracket, onBracketUpdated }) {
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [showAssignModal, setShowAssignModal] = useState(false)
+  const [selectedParticipant, setSelectedParticipant] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [manualName, setManualName] = useState('')
+  const [addMode, setAddMode] = useState('search') // 'search' or 'manual'
+
   const activeParticipants = participants.filter(p => p.status === 'active')
   const eliminatedParticipants = participants.filter(p => p.status === 'eliminated')
+
+  // Get available bracket positions
+  const getAvailableBracketPositions = () => {
+    if (!bracket || !bracket.rounds || bracket.rounds.length === 0) return []
+    
+    const firstRound = bracket.rounds[0]
+    const positions = []
+    
+    firstRound.matches.forEach((match, matchIndex) => {
+      // Check participant 1 position - consider placeholders as available
+      const isParticipant1Available = !match.participant1 || 
+        match.participant1.name === 'TBD' || 
+        match.participant1.name?.startsWith('Participant ') ||
+        match.participant1.participantName?.startsWith('Participant ')
+        
+      if (isParticipant1Available) {
+        positions.push({
+          matchIndex,
+          position: 1,
+          seed: matchIndex * 2 + 1,
+          description: `Match ${match.matchNumber || matchIndex + 1}, Position 1 (Seed ${matchIndex * 2 + 1})`
+        })
+      }
+      
+      // Check participant 2 position - consider placeholders as available
+      const isParticipant2Available = !match.participant2 || 
+        match.participant2.name === 'TBD' || 
+        match.participant2.name?.startsWith('Participant ') ||
+        match.participant2.participantName?.startsWith('Participant ')
+        
+      if (isParticipant2Available) {
+        positions.push({
+          matchIndex,
+          position: 2,
+          seed: matchIndex * 2 + 2,
+          description: `Match ${match.matchNumber || matchIndex + 1}, Position 2 (Seed ${matchIndex * 2 + 2})`
+        })
+      }
+    })
+    
+    return positions
+  }
+
+  // Get participant's current bracket position
+  const getParticipantBracketPosition = (participant) => {
+    if (!bracket || !bracket.rounds || bracket.rounds.length === 0) return null
+    
+    const firstRound = bracket.rounds[0]
+    
+    for (let matchIndex = 0; matchIndex < firstRound.matches.length; matchIndex++) {
+      const match = firstRound.matches[matchIndex]
+      
+      // Check participant 1 - ignore placeholders
+      if (match.participant1 && 
+          !match.participant1.name?.startsWith('Participant ') &&
+          !match.participant1.participantName?.startsWith('Participant ') &&
+          match.participant1.name !== 'TBD' &&
+          (match.participant1.name === participant.participantName || 
+           match.participant1.participantName === participant.participantName ||
+           match.participant1.id === participant.id)) {
+        return {
+          matchIndex,
+          position: 1,
+          seed: matchIndex * 2 + 1,
+          description: `Match ${match.matchNumber || matchIndex + 1}, Position 1 (Seed ${matchIndex * 2 + 1})`
+        }
+      }
+      
+      // Check participant 2 - ignore placeholders
+      if (match.participant2 && 
+          !match.participant2.name?.startsWith('Participant ') &&
+          !match.participant2.participantName?.startsWith('Participant ') &&
+          match.participant2.name !== 'TBD' &&
+          (match.participant2.name === participant.participantName || 
+           match.participant2.participantName === participant.participantName ||
+           match.participant2.id === participant.id)) {
+        return {
+          matchIndex,
+          position: 2,
+          seed: matchIndex * 2 + 2,
+          description: `Match ${match.matchNumber || matchIndex + 1}, Position 2 (Seed ${matchIndex * 2 + 2})`
+        }
+      }
+    }
+    
+    return null
+  }
+
+  // Assign participant to bracket position
+  const handleAssignToBracket = (participant, targetPosition) => {
+    if (!bracket || !onBracketUpdated) return
+    
+    const updatedBracket = { ...bracket }
+    const firstRound = updatedBracket.rounds[0]
+    const targetMatch = firstRound.matches[targetPosition.matchIndex]
+    
+    // Remove participant from any existing position first (ignore placeholders)
+    firstRound.matches.forEach((match, matchIndex) => {
+      if (match.participant1 && 
+          !match.participant1.name?.startsWith('Participant ') &&
+          !match.participant1.participantName?.startsWith('Participant ') &&
+          match.participant1.name !== 'TBD' &&
+          (match.participant1.name === participant.participantName || 
+           match.participant1.participantName === participant.participantName ||
+           match.participant1.id === participant.id)) {
+        // Restore original placeholder name
+        const seed = matchIndex * 2 + 1
+        match.participant1 = { 
+          id: `placeholder-${seed}`, 
+          name: `Participant ${seed}`,
+          participantName: `Participant ${seed}`,
+          seed: seed,
+          status: 'pending'
+        }
+      }
+      if (match.participant2 && 
+          !match.participant2.name?.startsWith('Participant ') &&
+          !match.participant2.participantName?.startsWith('Participant ') &&
+          match.participant2.name !== 'TBD' &&
+          (match.participant2.name === participant.participantName || 
+           match.participant2.participantName === participant.participantName ||
+           match.participant2.id === participant.id)) {
+        // Restore original placeholder name
+        const seed = matchIndex * 2 + 2
+        match.participant2 = { 
+          id: `placeholder-${seed}`, 
+          name: `Participant ${seed}`,
+          participantName: `Participant ${seed}`,
+          seed: seed,
+          status: 'pending'
+        }
+      }
+    })
+    
+    // Assign to new position (replacing placeholder or empty slot)
+    if (targetPosition.position === 1) {
+      targetMatch.participant1 = {
+        id: participant.id,
+        name: participant.participantName,
+        participantName: participant.participantName,
+        seed: targetPosition.seed
+      }
+    } else {
+      targetMatch.participant2 = {
+        id: participant.id,
+        name: participant.participantName,
+        participantName: participant.participantName,
+        seed: targetPosition.seed
+      }
+    }
+    
+    onBracketUpdated(updatedBracket)
+    setShowAssignModal(false)
+    setSelectedParticipant(null)
+  }
+
+  const handleSearchUsers = async (query) => {
+    if (!query.trim()) {
+      setSearchResults([])
+      return
+    }
+
+    setIsSearching(true)
+    try {
+      const response = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`)
+      if (response.ok) {
+        const results = await response.json()
+        setSearchResults(results.users || [])
+      }
+    } catch (error) {
+      console.error('Failed to search users:', error)
+      setSearchResults([])
+    } finally {
+      setIsSearching(false)
+    }
+  }
+
+  const handleAddParticipant = async (participant) => {
+    try {
+      const response = await fetch(`/api/tournaments/${tournament.id}/participants`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          participantName: participant.name || participant.participantName,
+          userId: participant.userId || null,
+          seed: activeParticipants.length + 1
+        })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        onParticipantAdded(result.participant)
+        setShowAddModal(false)
+        setSearchQuery('')
+        setManualName('')
+        setSearchResults([])
+      }
+    } catch (error) {
+      console.error('Failed to add participant:', error)
+    }
+  }
+
+  const handleRemoveParticipant = async (participantId) => {
+    if (!confirm('Are you sure you want to remove this participant?')) return
+
+    try {
+      const response = await fetch(`/api/tournaments/${tournament.id}/participants/${participantId}`, {
+        method: 'DELETE'
+      })
+
+      if (response.ok) {
+        onParticipantRemoved(participantId)
+      }
+    } catch (error) {
+      console.error('Failed to remove participant:', error)
+    }
+  }
 
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <Users className="h-5 w-5" />
-            <span>Active Participants ({activeParticipants.length})</span>
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center space-x-2">
+              <Users className="h-5 w-5" />
+              <span>Active Participants ({activeParticipants.length})</span>
+            </CardTitle>
+            {isAdmin && (
+              <Button onClick={() => setShowAddModal(true)} size="sm">
+                <UserPlus className="h-4 w-4 mr-2" />
+                Add Participant
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {activeParticipants.map((participant, index) => (
-              <div
-                key={participant.id}
-                className="flex items-center space-x-3 p-3 rounded-lg border bg-card"
-              >
-                <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
-                  <span className="text-sm font-medium">{participant.seed || index + 1}</span>
-                </div>
-                <div className="flex-1">
-                  <div className="font-medium">{participant.participantName}</div>
-                  {participant.seed === 1 && (
-                    <Badge variant="secondary" className="text-xs">
-                      <Crown className="h-3 w-3 mr-1" />
-                      Top Seed
-                    </Badge>
+            {activeParticipants.map((participant, index) => {
+              const bracketPosition = getParticipantBracketPosition(participant)
+              return (
+                <div
+                  key={participant.id}
+                  className="flex items-center space-x-3 p-3 rounded-lg border bg-card group"
+                >
+                  <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
+                    <span className="text-sm font-medium">{bracketPosition?.seed || '?'}</span>
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-medium">{participant.participantName}</div>
+                    {bracketPosition ? (
+                      <Badge variant="secondary" className="text-xs">
+                        <Target className="h-3 w-3 mr-1" />
+                        Seed {bracketPosition.seed}
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-xs">
+                        Not Assigned
+                      </Badge>
+                    )}
+                  </div>
+                  {isAdmin && (
+                    <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedParticipant(participant)
+                          setShowAssignModal(true)
+                        }}
+                        title="Assign to bracket position"
+                      >
+                        <Target className="h-4 w-4 text-blue-500" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleRemoveParticipant(participant.id)}
+                        title="Remove participant"
+                      >
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
+                    </div>
                   )}
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </CardContent>
       </Card>
@@ -402,7 +724,7 @@ function ParticipantsList({ participants }) {
               {eliminatedParticipants.map((participant) => (
                 <div
                   key={participant.id}
-                  className="flex items-center space-x-3 p-3 rounded-lg border bg-muted/50 opacity-60"
+                  className="flex items-center space-x-3 p-3 rounded-lg border bg-muted/50 opacity-60 group"
                 >
                   <div className="w-8 h-8 bg-muted rounded-full flex items-center justify-center">
                     <span className="text-sm">{participant.seed}</span>
@@ -418,6 +740,264 @@ function ParticipantsList({ participants }) {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Add Participant Modal */}
+      {showAddModal && (
+        <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add Participant</DialogTitle>
+              <DialogDescription>
+                Search for existing users or add a manual participant
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {/* Mode Selection */}
+              <div className="flex space-x-2">
+                <Button
+                  variant={addMode === 'search' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setAddMode('search')}
+                >
+                  <Search className="h-4 w-4 mr-2" />
+                  Search Users
+                </Button>
+                <Button
+                  variant={addMode === 'manual' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setAddMode('manual')}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Manual Entry
+                </Button>
+              </div>
+
+              {addMode === 'search' && (
+                <div className="space-y-3">
+                  <div>
+                    <Label htmlFor="userSearch">Search Users</Label>
+                    <Input
+                      id="userSearch"
+                      placeholder="Type username or email..."
+                      value={searchQuery}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value)
+                        handleSearchUsers(e.target.value)
+                      }}
+                    />
+                  </div>
+
+                  {isSearching && (
+                    <div className="text-center py-2">
+                      <div className="text-sm text-muted-foreground">Searching...</div>
+                    </div>
+                  )}
+
+                  {searchResults.length > 0 && (
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {searchResults.map((user) => (
+                        <div
+                          key={user.id}
+                          className="flex items-center justify-between p-2 border rounded-lg hover:bg-muted/50 cursor-pointer"
+                          onClick={() => handleAddParticipant({ 
+                            name: user.display_name || user.username,
+                            userId: user.id,
+                            participantName: user.display_name || user.username
+                          })}
+                        >
+                          <div className="flex items-center space-x-2">
+                            <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
+                              <User className="h-4 w-4" />
+                            </div>
+                            <div>
+                              <div className="font-medium">{user.display_name || user.username}</div>
+                              <div className="text-xs text-muted-foreground">{user.email}</div>
+                            </div>
+                          </div>
+                          <Button size="sm" variant="ghost">
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {searchQuery && !isSearching && searchResults.length === 0 && (
+                    <div className="text-center py-4">
+                      <div className="text-sm text-muted-foreground">No users found</div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {addMode === 'manual' && (
+                <div className="space-y-3">
+                  <div>
+                    <Label htmlFor="manualName">Participant Name</Label>
+                    <Input
+                      id="manualName"
+                      placeholder="Enter participant name..."
+                      value={manualName}
+                      onChange={(e) => setManualName(e.target.value)}
+                    />
+                  </div>
+                  <Button 
+                    className="w-full"
+                    disabled={!manualName.trim()}
+                    onClick={() => handleAddParticipant({ 
+                      participantName: manualName.trim(),
+                      userId: null
+                    })}
+                  >
+                    <UserPlus className="h-4 w-4 mr-2" />
+                    Add Participant
+                  </Button>
+                </div>
+              )}
+
+              <div className="flex justify-end space-x-2 pt-4 border-t">
+                <Button variant="outline" onClick={() => setShowAddModal(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Bracket Assignment Modal */}
+      {showAssignModal && selectedParticipant && (
+        <Dialog open={showAssignModal} onOpenChange={setShowAssignModal}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Assign to Bracket Position</DialogTitle>
+              <DialogDescription>
+                Assign {selectedParticipant.participantName} to a bracket position
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {/* Current Position */}
+              {(() => {
+                const currentPosition = getParticipantBracketPosition(selectedParticipant)
+                if (currentPosition) {
+                  return (
+                    <div className="p-3 bg-muted rounded-lg">
+                      <div className="text-sm font-medium">Current Position:</div>
+                      <div className="text-sm text-muted-foreground">
+                        {currentPosition.description}
+                      </div>
+                    </div>
+                  )
+                }
+                return (
+                  <div className="p-3 bg-muted rounded-lg">
+                    <div className="text-sm text-muted-foreground">
+                      Not currently assigned to bracket
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* Available Positions */}
+              <div>
+                <Label>Available Positions</Label>
+                <div className="mt-2 space-y-2 max-h-64 overflow-y-auto">
+                  {getAvailableBracketPositions().map((position, index) => (
+                    <div
+                      key={`${position.matchIndex}-${position.position}`}
+                      className="flex items-center justify-between p-2 border rounded-lg hover:bg-muted/50 cursor-pointer"
+                      onClick={() => handleAssignToBracket(selectedParticipant, position)}
+                    >
+                      <div className="flex items-center space-x-2">
+                        <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
+                          <span className="text-sm font-medium">{position.seed}</span>
+                        </div>
+                        <div>
+                          <div className="font-medium text-sm">{position.description}</div>
+                        </div>
+                      </div>
+                      <Button size="sm" variant="ghost">
+                        <ArrowRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  
+                  {getAvailableBracketPositions().length === 0 && (
+                    <div className="text-center py-4">
+                      <div className="text-sm text-muted-foreground">
+                        No available positions. All bracket slots are filled.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-between space-x-2 pt-4 border-t">
+                {getParticipantBracketPosition(selectedParticipant) && (
+                  <Button 
+                    variant="outline"
+                    onClick={() => {
+                      // Remove from current position
+                      const updatedBracket = { ...bracket }
+                      const firstRound = updatedBracket.rounds[0]
+                      
+                      firstRound.matches.forEach((match, matchIndex) => {
+                        if (match.participant1 && 
+                            !match.participant1.name?.startsWith('Participant ') &&
+                            !match.participant1.participantName?.startsWith('Participant ') &&
+                            match.participant1.name !== 'TBD' &&
+                            (match.participant1.name === selectedParticipant.participantName || 
+                             match.participant1.participantName === selectedParticipant.participantName ||
+                             match.participant1.id === selectedParticipant.id)) {
+                          // Restore original placeholder name
+                          const seed = matchIndex * 2 + 1
+                          match.participant1 = { 
+                            id: `placeholder-${seed}`, 
+                            name: `Participant ${seed}`,
+                            participantName: `Participant ${seed}`,
+                            seed: seed,
+                            status: 'pending'
+                          }
+                        }
+                        if (match.participant2 && 
+                            !match.participant2.name?.startsWith('Participant ') &&
+                            !match.participant2.participantName?.startsWith('Participant ') &&
+                            match.participant2.name !== 'TBD' &&
+                            (match.participant2.name === selectedParticipant.participantName || 
+                             match.participant2.participantName === selectedParticipant.participantName ||
+                             match.participant2.id === selectedParticipant.id)) {
+                          // Restore original placeholder name
+                          const seed = matchIndex * 2 + 2
+                          match.participant2 = { 
+                            id: `placeholder-${seed}`, 
+                            name: `Participant ${seed}`,
+                            participantName: `Participant ${seed}`,
+                            seed: seed,
+                            status: 'pending'
+                          }
+                        }
+                      })
+                      
+                      onBracketUpdated(updatedBracket)
+                      setShowAssignModal(false)
+                      setSelectedParticipant(null)
+                    }}
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    Remove from Bracket
+                  </Button>
+                )}
+                <Button variant="outline" onClick={() => setShowAssignModal(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   )

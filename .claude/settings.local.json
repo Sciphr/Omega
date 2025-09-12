@@ -4,7 +4,8 @@
       "Bash(npm install:*)",
       "Bash(npx:*)",
       "WebSearch",
-      "WebFetch(domain:www.npmjs.com)"
+      "WebFetch(domain:www.npmjs.com)",
+      "Bash(del:*)"
     ],
     "deny": [],
     "ask": []
