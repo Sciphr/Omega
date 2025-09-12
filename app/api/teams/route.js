@@ -28,9 +28,9 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    // Get teams user leads
-    const { data: ledTeams, error: ledError } = await supabase
-      .from('teams')
+    // Get teams user leads (try user_teams first, fallback to tournament teams)
+    let { data: ledTeams, error: ledError } = await supabase
+      .from('user_teams')
       .select(`
         id,
         name,
@@ -38,67 +38,49 @@ export async function GET(request) {
         game,
         max_members,
         is_public,
+        captain_id,
         created_at,
-        updated_at,
-        team_members!inner (
-          user_id,
-          role,
-          joined_at
-        )
+        updated_at
       `)
-      .eq('leader_id', user.id)
+      .eq('captain_id', user.id)
       .order('created_at', { ascending: false });
+    
+    // If user_teams doesn't exist, try tournament teams
+    if (ledError && (ledError.code === '42P01' || ledError.code === 'PGRST205')) {
+      ({ data: ledTeams, error: ledError } = await supabase
+        .from('teams')
+        .select(`
+          id,
+          name,
+          tag,
+          tournament_id,
+          captain_id,
+          captain_name,
+          roster,
+          seed,
+          status,
+          created_at,
+          updated_at
+        `)
+        .eq('captain_id', user.id)
+        .order('created_at', { ascending: false }));
+    }
 
     if (ledError) {
       console.error('Error fetching led teams:', ledError);
-      // If table doesn't exist, return empty array
-      if (ledError.code === '42P01') {
-        console.log('Teams table does not exist, returning empty arrays');
+      // If table doesn't exist or relationship missing or column missing, return empty array
+      if (ledError.code === '42P01' || ledError.code === 'PGRST200' || ledError.code === '42703') {
+        console.log('Teams table does not exist, relationship missing, or column missing, returning empty arrays');
         return NextResponse.json({ ledTeams: [], memberTeams: [] });
       }
       return NextResponse.json({ error: 'Failed to fetch led teams' }, { status: 500 });
     }
 
-    // Get teams user is a member of (but not leader)
-    const { data: memberTeams, error: memberError } = await supabase
-      .from('team_members')
-      .select(`
-        team_id,
-        role,
-        joined_at,
-        teams!inner (
-          id,
-          name,
-          description,
-          game,
-          max_members,
-          is_public,
-          created_at,
-          updated_at,
-          leader_id
-        )
-      `)
-      .eq('user_id', user.id)
-      .neq('teams.leader_id', user.id) // Exclude teams where user is leader
-      .order('joined_at', { ascending: false });
+    // Get teams user is a member of (but not leader) - skip if team_members table doesn't exist
+    let memberTeams = [];
 
-    if (memberError) {
-      console.error('Error fetching member teams:', memberError);
-      // If table doesn't exist, continue with empty member teams
-      if (memberError.code !== '42P01') {
-        return NextResponse.json({ error: 'Failed to fetch member teams' }, { status: 500 });
-      }
-    }
-
-    // Format the member teams data
-    const formattedMemberTeams = memberTeams?.map(m => ({
-      ...m.teams,
-      membership: {
-        role: m.role,
-        joined_at: m.joined_at
-      },
-      user_role: 'member'
-    })) || [];
+    // Format the member teams data (empty since team_members table doesn't exist)
+    const formattedMemberTeams = [];
 
     // Add user role to led teams
     const formattedLedTeams = ledTeams?.map(t => ({

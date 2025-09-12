@@ -37,7 +37,7 @@ export async function GET(request) {
     if (error) {
       console.error('Error fetching game profiles:', error);
       // If table doesn't exist, return empty array
-      if (error.code === '42P01') {
+      if (error.code === '42P01' || error.code === 'PGRST205') {
         console.log('User game profiles table does not exist, returning empty array');
         return NextResponse.json({ gameProfiles: [] });
       }

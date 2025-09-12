@@ -109,16 +109,6 @@ export function TournamentWizard({ onComplete }) {
         checkInRequired: false,
         rules: '',
         prizeInfo: '',
-        enableDraftBan: false,
-        draftBanSettings: {
-          enableBans: true,
-          enableDrafts: true,
-          bansPerSide: 3,
-          draftsPerSide: 5,
-          banTimer: 30,
-          draftTimer: 30,
-          alternatingOrder: true
-        }
       }
     }
   })
@@ -553,97 +543,6 @@ export function TournamentWizard({ onComplete }) {
 
                   <Separator />
 
-                  <div className="space-y-4">
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        {...form.register('settings.enableDraftBan')}
-                        className="rounded"
-                      />
-                      <h4 className="font-medium">Enable Draft/Ban Phase</h4>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Add a strategic draft and ban phase before matches begin. Perfect for character selection, map bans, or any pre-match strategy.
-                    </p>
-
-                    {watchedValues.settings?.enableDraftBan && (
-                      <Card className="p-4 bg-gradient-to-br from-primary/5 to-accent/5 border-primary/20">
-                        <div className="space-y-4">
-                          <h5 className="font-medium text-sm">Draft/Ban Configuration</h5>
-                          
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <Label htmlFor="bansPerSide" className="text-xs">Bans per side</Label>
-                              <Input
-                                id="bansPerSide"
-                                type="number"
-                                min="0"
-                                max="10"
-                                {...form.register('settings.draftBanSettings.bansPerSide', { valueAsNumber: true })}
-                                className="mt-1"
-                              />
-                            </div>
-                            
-                            <div>
-                              <Label htmlFor="draftsPerSide" className="text-xs">Picks per side</Label>
-                              <Input
-                                id="draftsPerSide"
-                                type="number"
-                                min="1"
-                                max="10"
-                                {...form.register('settings.draftBanSettings.draftsPerSide', { valueAsNumber: true })}
-                                className="mt-1"
-                              />
-                            </div>
-                            
-                            <div>
-                              <Label htmlFor="banTimer" className="text-xs">Ban timer (seconds)</Label>
-                              <Input
-                                id="banTimer"
-                                type="number"
-                                min="10"
-                                max="120"
-                                {...form.register('settings.draftBanSettings.banTimer', { valueAsNumber: true })}
-                                className="mt-1"
-                              />
-                            </div>
-                            
-                            <div>
-                              <Label htmlFor="draftTimer" className="text-xs">Pick timer (seconds)</Label>
-                              <Input
-                                id="draftTimer"
-                                type="number"
-                                min="10"
-                                max="120"
-                                {...form.register('settings.draftBanSettings.draftTimer', { valueAsNumber: true })}
-                                className="mt-1"
-                              />
-                            </div>
-                          </div>
-                          
-                          <div className="grid gap-3">
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                {...form.register('settings.draftBanSettings.enableBans')}
-                                className="rounded"
-                              />
-                              <span className="text-sm">Enable ban phase</span>
-                            </label>
-                            
-                            <label className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                {...form.register('settings.draftBanSettings.alternatingOrder')}
-                                className="rounded"
-                              />
-                              <span className="text-sm">Alternating turn order</span>
-                            </label>
-                          </div>
-                        </div>
-                      </Card>
-                    )}
-                  </div>
                   
                   <Card className="p-4 bg-muted">
                     <h4 className="font-semibold mb-2">Tournament Summary</h4>
@@ -653,12 +552,6 @@ export function TournamentWizard({ onComplete }) {
                       <p><strong>Format:</strong> {watchedValues.format?.replace('_', ' ') || 'Single Elimination'}</p>
                       <p><strong>Participants:</strong> Up to {watchedValues.maxParticipants}</p>
                       <p><strong>Match Format:</strong> {watchedValues.settings?.matchFormat?.toUpperCase() || 'BO1'}</p>
-                      <p><strong>Draft/Ban:</strong> {watchedValues.settings?.enableDraftBan ? 'Enabled' : 'Disabled'}</p>
-                      {watchedValues.settings?.enableDraftBan && (
-                        <p className="text-xs text-muted-foreground ml-4">
-                          {watchedValues.settings?.draftBanSettings?.bansPerSide || 0} bans, {watchedValues.settings?.draftBanSettings?.draftsPerSide || 0} picks per side
-                        </p>
-                      )}
                       {duration && (
                         <p><strong>Estimated Duration:</strong> {duration.estimatedHours} hours</p>
                       )}

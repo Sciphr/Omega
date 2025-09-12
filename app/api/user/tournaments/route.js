@@ -39,8 +39,8 @@ export async function GET(request) {
         status,
         format,
         max_participants,
-        start_date,
-        end_date,
+        started_at,
+        completed_at,
         created_at,
         updated_at
       `)
@@ -59,11 +59,12 @@ export async function GET(request) {
 
     // Get tournaments user participated in
     const { data: participatedTournaments, error: participatedError } = await supabase
-      .from('tournament_participants')
+      .from('participants')
       .select(`
         tournament_id,
         joined_at,
-        placement,
+        status,
+        eliminated_at,
         tournaments!inner (
           id,
           name,
@@ -71,8 +72,8 @@ export async function GET(request) {
           status,
           format,
           max_participants,
-          start_date,
-          end_date,
+          started_at,
+          completed_at,
           created_at,
           updated_at,
           creator_id
@@ -84,8 +85,8 @@ export async function GET(request) {
     if (participatedError) {
       console.error('Error fetching participated tournaments:', participatedError);
       // If table doesn't exist, continue with empty array
-      if (participatedError.code === '42P01') {
-        console.log('Tournament participants table does not exist, using empty array');
+      if (participatedError.code === '42P01' || participatedError.code === 'PGRST205') {
+        console.log('Participants table does not exist or missing, using empty array');
       } else {
         return NextResponse.json({ error: 'Failed to fetch participated tournaments' }, { status: 500 });
       }
@@ -96,7 +97,8 @@ export async function GET(request) {
       ...p.tournaments,
       participation: {
         joined_at: p.joined_at,
-        placement: p.placement
+        status: p.status,
+        eliminated_at: p.eliminated_at
       },
       role: 'participant'
     })) || [];

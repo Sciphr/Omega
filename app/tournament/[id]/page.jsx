@@ -40,6 +40,7 @@ import {
 } from 'lucide-react'
 import { GAME_TEMPLATES, TOURNAMENT_STATUS, TOURNAMENT_FORMAT } from '@/lib/types'
 import { BracketGenerator } from '@/lib/bracket-utils'
+import { supabase } from '@/lib/supabase'
 
 // Mock tournament data - replace with actual API call
 const mockTournament = {
@@ -78,10 +79,41 @@ export default function TournamentPage() {
   const [bracket, setBracket] = useState(null)
   const [activeTab, setActiveTab] = useState('bracket')
   const [loading, setLoading] = useState(true)
+  const [startingTournament, setStartingTournament] = useState(false)
+  const [currentUser, setCurrentUser] = useState(null)
+  const [loadingAuth, setLoadingAuth] = useState(true)
+  const [showJoinModal, setShowJoinModal] = useState(false)
+  const [joiningTournament, setJoiningTournament] = useState(false)
+  const [joinType, setJoinType] = useState('individual') // 'individual' or 'team'
+  const [userTeams, setUserTeams] = useState([])
+  const [selectedTeam, setSelectedTeam] = useState(null)
+  const [joinForm, setJoinForm] = useState({
+    participantName: '',
+    password: ''
+  })
+  const [teamRoster, setTeamRoster] = useState([])
 
-  // Mock user - replace with actual auth
-  const currentUser = null
-  const isAdmin = true // Set to true for testing participant management
+  // Real authentication
+  const isAdmin = false // Set to false for production
+  const isCreator = currentUser && tournament?.creator_id === currentUser.id
+
+  // Load authentication
+  useEffect(() => {
+    const loadAuth = async () => {
+      try {
+        const { data: { user }, error } = await supabase.auth.getUser()
+        if (!error) {
+          setCurrentUser(user)
+        }
+      } catch (error) {
+        console.error('Auth error:', error)
+      } finally {
+        setLoadingAuth(false)
+      }
+    }
+
+    loadAuth()
+  }, [])
 
   useEffect(() => {
     const loadTournament = async () => {
@@ -194,9 +226,75 @@ export default function TournamentPage() {
     }
   }
 
-  const handleJoinTournament = () => {
-    // Implement join tournament logic
-    console.log('Joining tournament...')
+  const handleJoinTournament = async () => {
+    // Pre-populate name if user is authenticated
+    if (currentUser) {
+      try {
+        // Get user's display name from the users table
+        const { data: userData, error } = await supabase
+          .from('users')
+          .select('display_name, username')
+          .eq('id', currentUser.id)
+          .single()
+        
+        if (!error && userData) {
+          setJoinForm(prev => ({
+            ...prev,
+            participantName: userData.display_name || userData.username || currentUser.email?.split('@')[0] || ''
+          }))
+        } else {
+          // Fallback to email prefix if can't get display name
+          setJoinForm(prev => ({
+            ...prev,
+            participantName: currentUser.email?.split('@')[0] || ''
+          }))
+        }
+      } catch (error) {
+        console.error('Error fetching user display name:', error)
+        // Fallback to email prefix
+        setJoinForm(prev => ({
+          ...prev,
+          participantName: currentUser.email?.split('@')[0] || ''
+        }))
+      }
+    }
+    setShowJoinModal(true)
+  }
+
+  const handleJoinSubmit = async () => {
+    if (!joinForm.participantName.trim()) {
+      alert('Please enter a participant name')
+      return
+    }
+
+    setJoiningTournament(true)
+    try {
+      const response = await fetch(`/api/tournaments/${tournament.id}/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          participantName: joinForm.participantName.trim(),
+          password: joinForm.password || null
+        })
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        // Reload tournament data to show new participant
+        window.location.reload() // Simple approach, could be optimized
+      } else {
+        alert('Failed to join tournament: ' + result.error)
+      }
+    } catch (error) {
+      console.error('Error joining tournament:', error)
+      alert('Failed to join tournament. Please try again.')
+    } finally {
+      setJoiningTournament(false)
+      setShowJoinModal(false)
+      setJoinForm({ participantName: '', password: '' })
+    }
   }
 
   const handleMatchClick = (match) => {
@@ -209,7 +307,49 @@ export default function TournamentPage() {
     // Implement score reporting logic
   }
 
-  if (loading) {
+  const handleStartTournament = async () => {
+    if (!tournament || !isCreator || tournament.status !== TOURNAMENT_STATUS.REGISTRATION) {
+      return
+    }
+
+    setStartingTournament(true)
+    try {
+      const response = await fetch(`/api/tournaments/${tournament.id}/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include'
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        // Update tournament status and reload data
+        setTournament(prev => ({
+          ...prev,
+          status: 'in_progress',
+          started_at: new Date().toISOString()
+        }))
+        
+        // Set the bracket from the API response
+        if (result.bracket) {
+          setBracket(result.bracket)
+        }
+        
+        // Switch to bracket tab to show the generated bracket
+        setActiveTab('bracket')
+      } else {
+        console.error('Failed to start tournament:', result.error)
+        alert('Failed to start tournament: ' + result.error)
+      }
+    } catch (error) {
+      console.error('Error starting tournament:', error)
+      alert('Failed to start tournament. Please try again.')
+    } finally {
+      setStartingTournament(false)
+    }
+  }
+
+  if (loading || loadingAuth) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
@@ -237,7 +377,11 @@ export default function TournamentPage() {
 
   const gameTemplate = GAME_TEMPLATES[tournament.game]
   const canJoin = tournament.status === TOURNAMENT_STATUS.REGISTRATION && 
-                 (tournament.current_participants || tournament.participants?.length || 0) < tournament.max_participants
+                 (tournament.current_participants || tournament.participants?.length || 0) < tournament.max_participants &&
+                 !tournament.participants?.some(p => p.user_id === currentUser?.id)
+  const canStart = isCreator && tournament.status === TOURNAMENT_STATUS.REGISTRATION && 
+                  (tournament.participants?.length || 0) >= 2
+
 
   return (
     <div className="min-h-screen bg-background">
@@ -307,7 +451,28 @@ export default function TournamentPage() {
                 </Button>
               )}
               
-              {isAdmin && (
+              {canStart && (
+                <Button 
+                  size="lg" 
+                  onClick={handleStartTournament}
+                  disabled={startingTournament}
+                  className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white"
+                >
+                  {startingTournament ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Starting...
+                    </>
+                  ) : (
+                    <>
+                      <Trophy className="h-4 w-4 mr-2" />
+                      Start Tournament
+                    </>
+                  )}
+                </Button>
+              )}
+              
+              {isCreator && (
                 <Link href={`/tournament/${tournament.id}/manage`}>
                   <Button variant="secondary">
                     <Settings className="h-4 w-4 mr-2" />
@@ -387,7 +552,7 @@ export default function TournamentPage() {
                     onMatchClick={handleMatchClick}
                     onReportScore={handleReportScore}
                     currentUser={currentUser}
-                    isAdmin={isAdmin}
+                    isAdmin={isCreator}
                   />
                 ) : (
                   <div className="text-center py-12">
@@ -406,7 +571,7 @@ export default function TournamentPage() {
               participants={tournament.participants || []} 
               tournament={tournament}
               bracket={bracket}
-              isAdmin={isAdmin}
+              isAdmin={isCreator}
               onParticipantAdded={(newParticipant) => {
                 // Ensure the new participant has proper data transformation
                 const transformedParticipant = {
@@ -479,6 +644,86 @@ export default function TournamentPage() {
         </Tabs>
       </div>
 
+      {/* Join Tournament Modal */}
+      {showJoinModal && (
+        <Dialog open={showJoinModal} onOpenChange={setShowJoinModal}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Join Tournament</DialogTitle>
+              <DialogDescription>
+                Join "{tournament.name}" and compete against other players!
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="participantName">Your Display Name</Label>
+                <Input
+                  id="participantName"
+                  placeholder="Enter your display name..."
+                  value={joinForm.participantName}
+                  onChange={(e) => setJoinForm(prev => ({ ...prev, participantName: e.target.value }))}
+                  className="mt-1"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  This name will be displayed in the tournament bracket
+                </p>
+              </div>
+
+              {tournament.password_hash && (
+                <div>
+                  <Label htmlFor="tournamentPassword">Tournament Password</Label>
+                  <Input
+                    id="tournamentPassword"
+                    type="password"
+                    placeholder="Enter tournament password..."
+                    value={joinForm.password}
+                    onChange={(e) => setJoinForm(prev => ({ ...prev, password: e.target.value }))}
+                    className="mt-1"
+                  />
+                </div>
+              )}
+
+              <div className="bg-muted/50 rounded-lg p-3">
+                <div className="text-sm space-y-1">
+                  <p><strong>Tournament:</strong> {tournament.name}</p>
+                  <p><strong>Game:</strong> {GAME_TEMPLATES[tournament.game]?.name || tournament.game}</p>
+                  <p><strong>Format:</strong> {tournament.format?.replace('_', ' ')}</p>
+                  <p><strong>Spots:</strong> {tournament.current_participants || tournament.participants?.length || 0} / {tournament.max_participants}</p>
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-4">
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setShowJoinModal(false)
+                    setJoinForm({ participantName: '', password: '' })
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={handleJoinSubmit}
+                  disabled={joiningTournament || !joinForm.participantName.trim()}
+                >
+                  {joiningTournament ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Joining...
+                    </>
+                  ) : (
+                    <>
+                      <Users className="h-4 w-4 mr-2" />
+                      Join Tournament
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }
@@ -496,6 +741,126 @@ function StatusBadge({ status }) {
     default:
       return <Badge variant="outline">{status}</Badge>
   }
+}
+
+function TeamRegistrationForm({ userTeams, selectedTeam, setSelectedTeam, teamRoster, setTeamRoster }) {
+  const addTeamMember = () => {
+    setTeamRoster(prev => [...prev, {
+      participant_name: '',
+      user_id: null,
+      email: '',
+      receives_match_access: false
+    }])
+  }
+
+  const updateTeamMember = (index, field, value) => {
+    setTeamRoster(prev => prev.map((member, i) => 
+      i === index ? { ...member, [field]: value } : member
+    ))
+  }
+
+  const removeTeamMember = (index) => {
+    setTeamRoster(prev => prev.filter((_, i) => i !== index))
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Team Selection */}
+      <div>
+        <Label>Select Team</Label>
+        <select 
+          value={selectedTeam?.id || ''} 
+          onChange={(e) => {
+            const team = userTeams.find(t => t.id === e.target.value)
+            setSelectedTeam(team || null)
+          }}
+          className="w-full mt-1 p-2 border rounded-md"
+        >
+          <option value="">Choose a team...</option>
+          {userTeams.map(team => (
+            <option key={team.id} value={team.id}>{team.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {selectedTeam && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <Label>Team Roster</Label>
+            <Button type="button" size="sm" onClick={addTeamMember}>
+              <Plus className="h-4 w-4 mr-1" />
+              Add Member
+            </Button>
+          </div>
+
+          <div className="space-y-3 max-h-64 overflow-y-auto">
+            {teamRoster.map((member, index) => (
+              <div key={index} className="border rounded-lg p-3 bg-muted/50">
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <div>
+                    <Label className="text-xs">Player Name *</Label>
+                    <Input
+                      placeholder="Player name"
+                      value={member.participant_name}
+                      onChange={(e) => updateTeamMember(index, 'participant_name', e.target.value)}
+                      className="mt-1"
+                      size="sm"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Email (optional)</Label>
+                    <Input
+                      type="email"
+                      placeholder="player@email.com"
+                      value={member.email}
+                      onChange={(e) => updateTeamMember(index, 'email', e.target.value)}
+                      className="mt-1"
+                      size="sm"
+                    />
+                  </div>
+                </div>
+                
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      checked={member.receives_match_access}
+                      onChange={(e) => updateTeamMember(index, 'receives_match_access', e.target.checked)}
+                      className="rounded"
+                    />
+                    <span className="text-xs">Send match access links</span>
+                  </label>
+                  
+                  <Button 
+                    type="button" 
+                    size="sm" 
+                    variant="ghost" 
+                    onClick={() => removeTeamMember(index)}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+            
+            {teamRoster.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No team members added yet. Click "Add Member" to start building your roster.
+              </p>
+            )}
+          </div>
+
+          <div className="bg-blue-50 rounded-lg p-3 mt-3">
+            <p className="text-xs text-blue-800">
+              <strong>Captain Control:</strong> Only members with email + "Send match access" will receive match links. 
+              Others can only be managed by you (the captain) during matches.
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdded, onParticipantRemoved, bracket, onBracketUpdated }) {
@@ -620,6 +985,7 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
       const response = await fetch(`/api/tournaments/${tournament.id}/participants/${participant.id}/seed`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ seed: targetPosition.seed })
       })
 
@@ -728,7 +1094,8 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
       // Remove seeds from all assigned participants in database
       const clearPromises = assignedParticipants.map(async (participant) => {
         const response = await fetch(`/api/tournaments/${tournament.id}/participants/${participant.id}/seed`, {
-          method: 'DELETE'
+          method: 'DELETE',
+          credentials: 'include'
         })
 
         if (!response.ok) {
@@ -812,6 +1179,7 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
         const response = await fetch(`/api/tournaments/${tournament.id}/participants/${participant.id}/seed`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({ seed: newSeed })
         })
 
@@ -915,6 +1283,7 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
       const response = await fetch(`/api/tournaments/${tournament.id}/participants`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           participantName: participant.name || participant.participantName,
           userId: participant.userId || null,
@@ -945,7 +1314,8 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
 
     try {
       const response = await fetch(`/api/tournaments/${tournament.id}/participants/${participantToRemove.id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        credentials: 'include'
       })
 
       if (response.ok) {
@@ -1287,7 +1657,8 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
                       try {
                         // Remove seed from database
                         const response = await fetch(`/api/tournaments/${tournament.id}/participants/${selectedParticipant.id}/seed`, {
-                          method: 'DELETE'
+                          method: 'DELETE',
+                          credentials: 'include'
                         })
 
                         if (!response.ok) {
