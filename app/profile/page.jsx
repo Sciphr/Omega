@@ -514,7 +514,7 @@ function GamesTab({ games, loading, refetchGames }) {
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center space-x-2">
               <Gamepad2 className="h-5 w-5 text-primary" />
-              <span>My Games ({games.data?.length || 0})</span>
+              <span>My Games ({games?.length || 0})</span>
             </CardTitle>
             <Dialog open={isAddingGame} onOpenChange={setIsAddingGame}>
               <DialogTrigger asChild>
@@ -536,9 +536,9 @@ function GamesTab({ games, loading, refetchGames }) {
           </div>
         </CardHeader>
         <CardContent>
-          {games.data?.length > 0 ? (
+          {games?.length > 0 ? (
             <div className="grid gap-4">
-              {games.data.map((game) => (
+              {games.map((game) => (
                 <GameCard key={game.id} game={game} />
               ))}
             </div>
