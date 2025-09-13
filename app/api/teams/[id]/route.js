@@ -5,7 +5,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 export async function GET(request, { params }) {
   try {
-    const { id } = params;
+    const { id } = await params;
 
     if (!id) {
       return NextResponse.json({ error: 'Team ID is required' }, { status: 400 });
@@ -16,22 +16,46 @@ export async function GET(request, { params }) {
 
     // Get team details with members
     const { data: team, error } = await supabase
-      .from('teams')
+      .from('user_teams')
       .select(`
         *,
         team_members (
           user_id,
           role,
           joined_at,
-          users (
-            id,
-            email,
-            user_metadata
-          )
+          display_name,
+          email,
+          is_registered
         )
       `)
       .eq('id', id)
       .single();
+
+    if (team && team.team_members) {
+      // For registered users, fetch their display names from the users table
+      const registeredMembers = team.team_members.filter(m => m.is_registered && m.user_id);
+      
+      if (registeredMembers.length > 0) {
+        const userIds = registeredMembers.map(m => m.user_id);
+        const { data: users } = await supabase
+          .from('users')
+          .select('id, display_name, username, email')
+          .in('id', userIds);
+
+        // Merge user data with team members
+        team.team_members = team.team_members.map(member => {
+          if (member.is_registered && member.user_id) {
+            const userData = users?.find(u => u.id === member.user_id);
+            return {
+              ...member,
+              display_name: userData?.display_name || userData?.username || member.display_name || 'User',
+              email: userData?.email || member.email
+            };
+          }
+          return member;
+        });
+      }
+    }
 
     if (error) {
       console.error('Error fetching team:', error);
@@ -50,7 +74,7 @@ export async function GET(request, { params }) {
 
 export async function PUT(request, { params }) {
   try {
-    const { id } = params;
+    const { id } = await params;
 
     if (!id) {
       return NextResponse.json({ error: 'Team ID is required' }, { status: 400 });
@@ -80,12 +104,12 @@ export async function PUT(request, { params }) {
     }
 
     const body = await request.json();
-    const { name, description, max_members, is_public } = body;
+    const { name, max_members, is_public } = body;
 
     // Verify user is the team leader
     const { data: team, error: teamError } = await supabase
-      .from('teams')
-      .select('leader_id')
+      .from('user_teams')
+      .select('captain_id')
       .eq('id', id)
       .single();
 
@@ -97,16 +121,15 @@ export async function PUT(request, { params }) {
       return NextResponse.json({ error: 'Failed to fetch team' }, { status: 500 });
     }
 
-    if (team.leader_id !== user.id) {
+    if (team.captain_id !== user.id) {
       return NextResponse.json({ error: 'Only team leaders can update team details' }, { status: 403 });
     }
 
     // Update team
     const { data: updatedTeam, error: updateError } = await supabase
-      .from('teams')
+      .from('user_teams')
       .update({
         name,
-        description,
         max_members,
         is_public,
         updated_at: new Date().toISOString()
@@ -129,7 +152,7 @@ export async function PUT(request, { params }) {
 
 export async function DELETE(request, { params }) {
   try {
-    const { id } = params;
+    const { id } = await params;
 
     if (!id) {
       return NextResponse.json({ error: 'Team ID is required' }, { status: 400 });
@@ -160,8 +183,8 @@ export async function DELETE(request, { params }) {
 
     // Verify user is the team leader
     const { data: team, error: teamError } = await supabase
-      .from('teams')
-      .select('leader_id')
+      .from('user_teams')
+      .select('captain_id')
       .eq('id', id)
       .single();
 
@@ -173,13 +196,13 @@ export async function DELETE(request, { params }) {
       return NextResponse.json({ error: 'Failed to fetch team' }, { status: 500 });
     }
 
-    if (team.leader_id !== user.id) {
+    if (team.captain_id !== user.id) {
       return NextResponse.json({ error: 'Only team leaders can delete teams' }, { status: 403 });
     }
 
     // Delete team (this will cascade delete team members due to foreign key constraints)
     const { error: deleteError } = await supabase
-      .from('teams')
+      .from('user_teams')
       .delete()
       .eq('id', id);
 

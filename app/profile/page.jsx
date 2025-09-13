@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -24,7 +25,14 @@ import {
   Calendar,
   Settings,
   Shield,
-  Eye
+  Eye,
+  Link as LinkIcon,
+  Unlink,
+  ExternalLink,
+  Globe,
+  Lock,
+  CheckCircle,
+  AlertCircle
 } from 'lucide-react'
 import { GAME_TEMPLATES, TOURNAMENT_STATUS } from '@/lib/types'
 
@@ -34,7 +42,9 @@ export default function ProfilePage() {
   const [tournaments, setTournaments] = useState([])
   const [games, setGames] = useState([])
   const [teams, setTeams] = useState([])
+  const [linkedAccounts, setLinkedAccounts] = useState([])
   const [loadingData, setLoadingData] = useState(true)
+  const [showUnlinkModal, setShowUnlinkModal] = useState(null)
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -66,11 +76,12 @@ export default function ProfilePage() {
         'Content-Type': 'application/json'
       }
       
-      // Fetch tournaments, games, and teams in parallel
-      const [tournamentsRes, gamesRes, teamsRes] = await Promise.all([
+      // Fetch tournaments, games, teams, and linked accounts in parallel
+      const [tournamentsRes, gamesRes, teamsRes, linkedAccountsRes] = await Promise.all([
         fetch('/api/user/tournaments', { headers }),
         fetch('/api/user/games', { headers }),
-        fetch('/api/teams', { headers })
+        fetch('/api/teams', { headers }),
+        fetch('/api/user/linked-accounts', { headers })
       ])
       
       // Handle tournaments
@@ -108,8 +119,7 @@ export default function ProfilePage() {
             game: team.game,
             role: 'leader',
             members: team.team_members?.length || 0,
-            created_at: team.created_at,
-            description: team.description
+            created_at: team.created_at
           })) || []),
           ...(teamsData.memberTeams?.map(team => ({
             id: team.id,
@@ -117,13 +127,20 @@ export default function ProfilePage() {
             game: team.game,
             role: 'member',
             members: team.team_members?.length || 0,
-            created_at: team.created_at,
-            description: team.description
+            created_at: team.created_at
           })) || [])
         ]
         setTeams(allTeams)
       } else {
         console.error('Failed to fetch teams:', await teamsRes.text())
+      }
+      
+      // Handle linked accounts
+      if (linkedAccountsRes.ok) {
+        const linkedAccountsData = await linkedAccountsRes.json()
+        setLinkedAccounts(linkedAccountsData.linkedAccounts || [])
+      } else {
+        console.error('Failed to fetch linked accounts:', await linkedAccountsRes.text())
       }
     } catch (error) {
       console.error('Failed to fetch user data:', error)
@@ -176,10 +193,11 @@ export default function ProfilePage() {
 
         {/* Profile Content */}
         <Tabs defaultValue="tournaments" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="tournaments">Tournaments</TabsTrigger>
             <TabsTrigger value="games">Games</TabsTrigger>
             <TabsTrigger value="teams">Teams</TabsTrigger>
+            <TabsTrigger value="accounts">Linked Accounts</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
 
@@ -193,6 +211,16 @@ export default function ProfilePage() {
 
           <TabsContent value="teams">
             <TeamsTab teams={teams} loading={loadingData} />
+          </TabsContent>
+
+          <TabsContent value="accounts">
+            <LinkedAccountsTab 
+              linkedAccounts={linkedAccounts} 
+              loading={loadingData}
+              showUnlinkModal={showUnlinkModal}
+              setShowUnlinkModal={setShowUnlinkModal}
+              setLinkedAccounts={setLinkedAccounts}
+            />
           </TabsContent>
 
           <TabsContent value="settings">
@@ -637,5 +665,205 @@ function AddGameForm({ onClose }) {
         </Button>
       </div>
     </form>
+  )
+}
+
+// Platform configurations with proper brand colors and icons
+const PLATFORMS = {
+  discord: {
+    name: 'Discord',
+    color: 'bg-[#5865F2]', // Discord's official brand color
+    iconType: 'svg',
+    iconSvg: (
+      <svg viewBox="0 0 24 24" className="w-6 h-6 fill-current">
+        <path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419-.0002 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9554 2.4189-2.1568 2.4189Z"/>
+      </svg>
+    ),
+    description: 'Link your Discord account for community features and bot integration'
+  }
+}
+
+function LinkedAccountsTab({ linkedAccounts, loading, showUnlinkModal, setShowUnlinkModal, setLinkedAccounts }) {
+  if (loading) {
+    return <div className="text-center py-8">Loading linked accounts...</div>
+  }
+
+  const handleLinkAccount = (platform) => {
+    // Redirect to OAuth flow
+    window.location.href = `/api/auth/link/${platform}`
+  }
+
+  const handleToggleVisibility = async (accountId, isPublic) => {
+    try {
+      const { session } = useAuthStore.getState()
+      
+      const response = await fetch('/api/user/linked-accounts', {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          accountId,
+          is_public: isPublic
+        })
+      })
+      
+      const result = await response.json()
+      
+      if (result.success) {
+        // Update local state
+        setLinkedAccounts(prev => prev.map(account => 
+          account.id === accountId ? { ...account, is_public: isPublic } : account
+        ))
+      } else {
+        console.error('Failed to update visibility:', result.error)
+        alert('Failed to update visibility settings')
+      }
+    } catch (error) {
+      console.error('Error updating visibility:', error)
+      alert('Failed to update visibility settings')
+    }
+  }
+
+  const handleUnlinkAccount = async (accountId) => {
+    try {
+      const { session } = useAuthStore.getState()
+      
+      const response = await fetch(`/api/user/linked-accounts?id=${accountId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      })
+      
+      const result = await response.json()
+      
+      if (result.success) {
+        // Remove from local state
+        setLinkedAccounts(prev => prev.filter(account => account.id !== accountId))
+        setShowUnlinkModal(null)
+        alert('Account unlinked successfully')
+      } else {
+        console.error('Failed to unlink account:', result.error)
+        alert('Failed to unlink account')
+      }
+    } catch (error) {
+      console.error('Error unlinking account:', error)
+      alert('Failed to unlink account')
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <LinkIcon className="h-5 w-5 text-primary" />
+            <span>Gaming Account Links</span>
+          </CardTitle>
+          <CardDescription>
+            Connect your gaming accounts to enhance your tournament experience and enable bot features
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {Object.entries(PLATFORMS).map(([platformKey, platform]) => {
+            const linkedAccount = linkedAccounts.find(account => account.platform === platformKey)
+            
+            return (
+              <div key={platformKey} className="border rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className={`h-10 w-10 ${platform.color} rounded-lg flex items-center justify-center text-white`}>
+                      {platform.iconSvg}
+                    </div>
+                    <div>
+                      <div className="font-semibold flex items-center space-x-2">
+                        <span>{platform.name}</span>
+                        {linkedAccount && (
+                          <Badge variant={linkedAccount.verified ? 'default' : 'secondary'}>
+                            {linkedAccount.verified ? (
+                              <><CheckCircle className="h-3 w-3 mr-1" /> Verified</>
+                            ) : (
+                              <><AlertCircle className="h-3 w-3 mr-1" /> Unverified</>
+                            )}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        {linkedAccount ? linkedAccount.platform_username : platform.description}
+                      </div>
+                      {linkedAccount?.linked_at && (
+                        <div className="text-xs text-muted-foreground">
+                          Linked {new Date(linkedAccount.linked_at).toLocaleDateString()}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center space-x-2">
+                    {linkedAccount ? (
+                      <>
+                        <div className="flex items-center space-x-2 text-sm">
+                          <span>{linkedAccount.is_public ? 'Public' : 'Private'}</span>
+                          <Switch
+                            checked={linkedAccount.is_public}
+                            onCheckedChange={(checked) => handleToggleVisibility(linkedAccount.id, checked)}
+                            aria-label="Toggle visibility"
+                          />
+                          {linkedAccount.is_public ? <Globe className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowUnlinkModal(linkedAccount)}
+                        >
+                          <Unlink className="h-4 w-4 mr-2" />
+                          Unlink
+                        </Button>
+                      </>
+                    ) : (
+                      <Button 
+                        onClick={() => handleLinkAccount(platformKey)}
+                        size="sm"
+                      >
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                        Link Account
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </CardContent>
+      </Card>
+
+      {/* Unlink Confirmation Modal */}
+      {showUnlinkModal && (
+        <Dialog open={!!showUnlinkModal} onOpenChange={() => setShowUnlinkModal(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Unlink {PLATFORMS[showUnlinkModal.platform]?.name} Account</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to unlink your {PLATFORMS[showUnlinkModal.platform]?.name} account 
+                ({showUnlinkModal.platform_username})? This action cannot be undone and will disable any bot features that depend on this account.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex justify-end space-x-2 mt-4">
+              <Button variant="outline" onClick={() => setShowUnlinkModal(null)}>
+                Cancel
+              </Button>
+              <Button 
+                variant="destructive" 
+                onClick={() => handleUnlinkAccount(showUnlinkModal.id)}
+              >
+                Unlink Account
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
   )
 }

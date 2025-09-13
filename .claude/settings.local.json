@@ -5,7 +5,8 @@
       "Bash(npx:*)",
       "WebSearch",
       "WebFetch(domain:www.npmjs.com)",
-      "Bash(del:*)"
+      "Bash(del:*)",
+      "Bash(sed:*)"
     ],
     "deny": [],
     "ask": []

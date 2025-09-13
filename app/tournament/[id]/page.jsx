@@ -137,8 +137,8 @@ export default function TournamentPage() {
           setTournament(transformedTournament)
           
           // Generate bracket visualization
-          if (result.tournament.status === 'in_progress' && result.tournament.matches?.length > 0) {
-            // Use real matches from database for in-progress tournaments
+          if ((result.tournament.status === 'in_progress' || result.tournament.status === 'completed') && result.tournament.matches?.length > 0) {
+            // Use real matches from database for in-progress and completed tournaments
             const bracketWithMatches = BracketGenerator.generateBracketFromMatches(
               result.tournament.matches,
               result.tournament.participants
@@ -323,16 +323,38 @@ export default function TournamentPage() {
       const result = await response.json()
 
       if (result.success) {
-        // Update tournament status and reload data
-        setTournament(prev => ({
-          ...prev,
-          status: 'in_progress',
-          started_at: new Date().toISOString()
-        }))
+        // Reload the tournament data to get the newly created matches
+        const refreshResponse = await fetch(`/api/tournaments/${params.id}`)
+        const refreshResult = await refreshResponse.json()
         
-        // Set the bracket from the API response
-        if (result.bracket) {
-          setBracket(result.bracket)
+        if (refreshResult.success) {
+          // Transform participant data to ensure UI compatibility
+          const transformedTournament = {
+            ...refreshResult.tournament,
+            participants: refreshResult.tournament.participants?.map(p => ({
+              ...p,
+              display_name: p.participant_name,
+              name: p.participant_name
+            })) || []
+          }
+          
+          setTournament(transformedTournament)
+          
+          // Set the bracket from the API response
+          if (result.bracket) {
+            setBracket(result.bracket)
+          }
+        } else {
+          // Fallback to manual state update if refresh fails
+          setTournament(prev => ({
+            ...prev,
+            status: 'in_progress',
+            started_at: new Date().toISOString()
+          }))
+          
+          if (result.bracket) {
+            setBracket(result.bracket)
+          }
         }
         
         // Switch to bracket tab to show the generated bracket
@@ -472,7 +494,7 @@ export default function TournamentPage() {
                 </Button>
               )}
               
-              {isCreator && (
+              {isCreator && tournament.status !== 'completed' && (
                 <Link href={`/tournament/${tournament.id}/manage`}>
                   <Button variant="secondary">
                     <Settings className="h-4 w-4 mr-2" />
@@ -483,6 +505,60 @@ export default function TournamentPage() {
             </div>
           </div>
         </div>
+
+        {/* Tournament Completion Celebration */}
+        {tournament.status === 'completed' && (
+          <div className="mb-8">
+            <Card className="border-2 border-green-200 bg-gradient-to-r from-green-50 to-emerald-50">
+              <CardContent className="p-6 text-center">
+                <div className="flex items-center justify-center space-x-3 mb-4">
+                  <Trophy className="h-12 w-12 text-yellow-500" />
+                  <div>
+                    <h2 className="text-2xl font-bold text-green-800">🎉 Tournament Completed! 🎉</h2>
+                    {(() => {
+                      // Find the tournament winner - simpler logic for any tournament size
+                      let finalMatch = null;
+                      
+                      if (tournament.matches?.length === 1) {
+                        // Single match tournament - that match is the final
+                        finalMatch = tournament.matches[0];
+                      } else {
+                        // Multi-match tournament - find highest round completed match with winner
+                        finalMatch = tournament.matches
+                          ?.filter(m => m.winner_id && m.status === 'completed')
+                          .sort((a, b) => b.round - a.round)[0];
+                      }
+                      
+                      const winner = finalMatch ? 
+                        tournament.participants?.find(p => p.id === finalMatch.winner_id) : null;
+                      
+                      return winner ? (
+                        <div className="mt-2">
+                          <p className="text-xl font-semibold text-green-700">
+                            🏆 Champion: {winner.participant_name} 🏆
+                          </p>
+                          <p className="text-green-600 mt-1">
+                            All matches have been finished and results are final
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="text-green-600 mt-1">
+                          All matches have been finished and results are final
+                        </p>
+                      );
+                    })()}
+                  </div>
+                  <Trophy className="h-12 w-12 text-yellow-500" />
+                </div>
+                {tournament.completed_at && (
+                  <p className="text-sm text-green-600">
+                    Completed on {new Date(tournament.completed_at).toLocaleDateString()} at {new Date(tournament.completed_at).toLocaleTimeString()}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* Tournament Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -1907,10 +1983,10 @@ function MatchesList({ bracket, tournament }) {
                     </div>
                   </div>
                   
-                  {match.score && (
+                  {(match.score || match.participant1_score !== null || match.participant2_score !== null) && (
                     <div className="text-right font-mono">
-                      <div>{match.score[match.participant1?.id] || '0'}</div>
-                      <div>{match.score[match.participant2?.id] || '0'}</div>
+                      <div>{match.participant1_score ?? match.score?.[match.participant1?.id] ?? '0'}</div>
+                      <div>{match.participant2_score ?? match.score?.[match.participant2?.id] ?? '0'}</div>
                     </div>
                   )}
                   

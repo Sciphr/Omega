@@ -30,14 +30,7 @@ export async function POST(request, { params }) {
     // Get current user
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     
-    console.log('Auth debug:', { 
-      user: user?.id, 
-      authError, 
-      cookies: cookieStore.getAll().map(c => c.name)
-    })
-    
     if (authError || !user) {
-      console.log('Authentication failed:', authError)
       return NextResponse.json({ 
         success: false, 
         error: 'Authentication required' 

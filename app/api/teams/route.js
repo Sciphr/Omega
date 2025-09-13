@@ -34,7 +34,6 @@ export async function GET(request) {
       .select(`
         id,
         name,
-        description,
         game,
         max_members,
         is_public,
@@ -124,7 +123,7 @@ export async function POST(request) {
     }
 
     const body = await request.json();
-    const { name, description, game, max_members = 5, is_public = false } = body;
+    const { name, game, max_members = 5, is_public = false } = body;
 
     if (!name || !game) {
       return NextResponse.json({ error: 'name and game are required' }, { status: 400 });
@@ -132,14 +131,13 @@ export async function POST(request) {
 
     // Create new team
     const { data: team, error: teamError } = await supabase
-      .from('teams')
+      .from('user_teams')
       .insert({
         name,
-        description,
         game,
         max_members,
         is_public,
-        leader_id: user.id
+        captain_id: user.id
       })
       .select()
       .single();
@@ -161,7 +159,7 @@ export async function POST(request) {
     if (memberError) {
       console.error('Error adding leader to team members:', memberError);
       // If we can't add the leader as a member, delete the team to maintain consistency
-      await supabase.from('teams').delete().eq('id', team.id);
+      await supabase.from('user_teams').delete().eq('id', team.id);
       return NextResponse.json({ error: 'Failed to create team membership' }, { status: 500 });
     }
 

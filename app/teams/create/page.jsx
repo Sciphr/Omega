@@ -7,7 +7,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ArrowLeft, Users, Crown } from 'lucide-react'
@@ -21,7 +20,6 @@ export default function CreateTeamPage() {
   
   const [formData, setFormData] = useState({
     name: '',
-    description: '',
     game: '',
     maxMembers: 5,
     isPublic: false
@@ -54,7 +52,6 @@ export default function CreateTeamPage() {
         },
         body: JSON.stringify({
           name: formData.name,
-          description: formData.description,
           game: formData.game,
           max_members: formData.maxMembers,
           is_public: formData.isPublic
@@ -160,18 +157,6 @@ export default function CreateTeamPage() {
                   </Select>
                 </div>
 
-                {/* Description */}
-                <div className="space-y-2">
-                  <Label htmlFor="description">Description</Label>
-                  <Textarea
-                    id="description"
-                    value={formData.description}
-                    onChange={(e) => handleInputChange('description', e.target.value)}
-                    placeholder="Describe your team, playstyle, goals..."
-                    rows={4}
-                    disabled={isSubmitting}
-                  />
-                </div>
 
                 {/* Max Members */}
                 <div className="space-y-2">

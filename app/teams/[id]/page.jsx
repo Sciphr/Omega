@@ -35,18 +35,30 @@ export default function TeamPage({ params }) {
   const [loadingTeam, setLoadingTeam] = useState(true)
   const [error, setError] = useState(null)
   const [isEditing, setIsEditing] = useState(false)
+  const [teamId, setTeamId] = useState(null)
+  const [showInviteModal, setShowInviteModal] = useState(false)
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false)
+
+  // Get team ID from params
+  useEffect(() => {
+    const getTeamId = async () => {
+      const resolvedParams = await params
+      setTeamId(resolvedParams.id)
+    }
+    getTeamId()
+  }, [params])
 
   // Fetch team data
   useEffect(() => {
-    if (params.id) {
+    if (teamId) {
       fetchTeam()
     }
-  }, [params.id])
+  }, [teamId])
 
   const fetchTeam = async () => {
     try {
       setLoadingTeam(true)
-      const response = await fetch(`/api/teams/${params.id}`)
+      const response = await fetch(`/api/teams/${teamId}`)
       
       if (response.ok) {
         const { team } = await response.json()
@@ -189,10 +201,16 @@ export default function TeamPage({ params }) {
                     <span>Members ({team.team_members?.length || 0})</span>
                   </CardTitle>
                   {isLeader && (
-                    <Button size="sm">
-                      <UserPlus className="h-4 w-4 mr-2" />
-                      Invite Members
-                    </Button>
+                    <div className="flex space-x-2">
+                      <Button size="sm" onClick={() => setShowInviteModal(true)}>
+                        <UserPlus className="h-4 w-4 mr-2" />
+                        Invite User
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setShowAddMemberModal(true)}>
+                        <UserPlus className="h-4 w-4 mr-2" />
+                        Add Member
+                      </Button>
+                    </div>
                   )}
                 </div>
               </CardHeader>
@@ -257,6 +275,40 @@ export default function TeamPage({ params }) {
           </div>
         </div>
       </div>
+
+      {/* Invite User Modal */}
+      <Dialog open={showInviteModal} onOpenChange={setShowInviteModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Invite User</DialogTitle>
+            <DialogDescription>
+              Search for users by email or name to invite them to your team
+            </DialogDescription>
+          </DialogHeader>
+          <InviteUserForm 
+            teamId={teamId} 
+            onClose={() => setShowInviteModal(false)} 
+            onSuccess={fetchTeam} 
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Member Modal */}
+      <Dialog open={showAddMemberModal} onOpenChange={setShowAddMemberModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Team Member</DialogTitle>
+            <DialogDescription>
+              Add someone to your team manually (they don't need an account)
+            </DialogDescription>
+          </DialogHeader>
+          <AddMemberForm 
+            teamId={teamId} 
+            onClose={() => setShowAddMemberModal(false)} 
+            onSuccess={fetchTeam} 
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -269,18 +321,16 @@ function MemberCard({ member, isLeader, teamId }) {
       <div className="flex items-center space-x-3">
         <Avatar className="h-8 w-8">
           <AvatarFallback>
-            {member.users?.user_metadata?.display_name?.charAt(0) ||
-             member.users?.email?.charAt(0) ||
+            {member.display_name?.charAt(0) || 
+             member.email?.charAt(0) ||
              'U'}
           </AvatarFallback>
         </Avatar>
         <div>
           <p className="font-medium">
-            {member.users?.user_metadata?.display_name || 
-             member.users?.user_metadata?.username || 
-             'User'}
+            {member.display_name || 'User'}
           </p>
-          <p className="text-sm text-muted-foreground">{member.users?.email}</p>
+          <p className="text-sm text-muted-foreground">{member.email}</p>
         </div>
       </div>
       <div className="flex items-center space-x-2">
@@ -298,10 +348,234 @@ function MemberCard({ member, isLeader, teamId }) {
   )
 }
 
+function InviteUserForm({ teamId, onClose, onSuccess }) {
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [selectedUser, setSelectedUser] = useState(null)
+
+  const searchUsers = async (query) => {
+    if (query.length < 2) {
+      setSearchResults([])
+      return
+    }
+
+    setIsSearching(true)
+    try {
+      const response = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`)
+      const data = await response.json()
+      
+      if (data.success) {
+        setSearchResults(data.users)
+      } else {
+        console.error('User search failed:', data.error)
+        setSearchResults([])
+      }
+    } catch (error) {
+      console.error('Error searching users:', error)
+      setSearchResults([])
+    } finally {
+      setIsSearching(false)
+    }
+  }
+
+  const handleInvite = async () => {
+    if (!selectedUser) return
+
+    setIsSubmitting(true)
+    try {
+      const { session } = useAuthStore.getState()
+      if (!session?.access_token) {
+        alert('Authentication required')
+        return
+      }
+
+      const response = await fetch(`/api/teams/${teamId}/members`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          user_id: selectedUser.id,
+          is_registered: true
+        })
+      })
+
+      if (response.ok) {
+        onSuccess()
+        onClose()
+      } else {
+        const errorData = await response.json()
+        alert('Failed to invite user: ' + errorData.error)
+      }
+    } catch (error) {
+      console.error('Error inviting user:', error)
+      alert('Failed to invite user. Please try again.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label htmlFor="search">Search Users</Label>
+        <Input
+          id="search"
+          value={searchQuery}
+          onChange={(e) => {
+            setSearchQuery(e.target.value)
+            searchUsers(e.target.value)
+          }}
+          placeholder="Enter username, display name, or email..."
+          disabled={isSubmitting}
+        />
+      </div>
+
+      {isSearching && (
+        <div className="text-center py-4">
+          <div className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full mx-auto"></div>
+        </div>
+      )}
+
+      {searchResults.length > 0 && (
+        <div className="space-y-2 max-h-48 overflow-y-auto">
+          {searchResults.map((user) => (
+            <div
+              key={user.id}
+              className={`p-3 border rounded-lg cursor-pointer transition-colors ${
+                selectedUser?.id === user.id ? 'bg-primary/10 border-primary' : 'hover:bg-muted'
+              }`}
+              onClick={() => setSelectedUser(user)}
+            >
+              <div className="flex items-center space-x-3">
+                <Avatar className="h-8 w-8">
+                  <AvatarFallback>
+                    {user.display_name?.charAt(0) || user.username?.charAt(0) || 'U'}
+                  </AvatarFallback>
+                </Avatar>
+                <div>
+                  <p className="font-medium">
+                    {user.display_name || user.username}
+                  </p>
+                  <p className="text-sm text-muted-foreground">{user.email}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {searchQuery.length >= 2 && !isSearching && searchResults.length === 0 && (
+        <div className="text-center py-4 text-muted-foreground">
+          No users found matching "{searchQuery}"
+        </div>
+      )}
+
+      <div className="flex space-x-2">
+        <Button 
+          onClick={handleInvite} 
+          disabled={!selectedUser || isSubmitting}
+        >
+          {isSubmitting ? 'Inviting...' : 'Invite User'}
+        </Button>
+        <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function AddMemberForm({ teamId, onClose, onSuccess }) {
+  const [formData, setFormData] = useState({
+    display_name: '',
+    email: ''
+  })
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setIsSubmitting(true)
+
+    try {
+      const { session } = useAuthStore.getState()
+      if (!session?.access_token) {
+        alert('Authentication required')
+        return
+      }
+
+      const response = await fetch(`/api/teams/${teamId}/members`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          display_name: formData.display_name,
+          email: formData.email || null,
+          is_registered: false
+        })
+      })
+
+      if (response.ok) {
+        onSuccess()
+        onClose()
+      } else {
+        const errorData = await response.json()
+        alert('Failed to add member: ' + errorData.error)
+      }
+    } catch (error) {
+      console.error('Error adding member:', error)
+      alert('Failed to add member. Please try again.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <Label htmlFor="displayName">Display Name *</Label>
+        <Input
+          id="displayName"
+          value={formData.display_name}
+          onChange={(e) => setFormData(prev => ({ ...prev, display_name: e.target.value }))}
+          placeholder="Enter member's name"
+          disabled={isSubmitting}
+          required
+        />
+      </div>
+
+      <div>
+        <Label htmlFor="email">Email (optional)</Label>
+        <Input
+          id="email"
+          type="email"
+          value={formData.email}
+          onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
+          placeholder="Enter member's email"
+          disabled={isSubmitting}
+        />
+      </div>
+
+      <div className="flex space-x-2">
+        <Button type="submit" disabled={!formData.display_name || isSubmitting}>
+          {isSubmitting ? 'Adding...' : 'Add Member'}
+        </Button>
+        <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  )
+}
+
 function EditTeamForm({ team, onClose, onUpdate }) {
   const [formData, setFormData] = useState({
     name: team.name,
-    description: team.description || '',
     max_members: team.max_members,
     is_public: team.is_public
   })
@@ -354,17 +628,6 @@ function EditTeamForm({ team, onClose, onUpdate }) {
           onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
           disabled={isSubmitting}
           required
-        />
-      </div>
-
-      <div>
-        <Label htmlFor="description">Description</Label>
-        <Textarea
-          id="description"
-          value={formData.description}
-          onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-          rows={4}
-          disabled={isSubmitting}
         />
       </div>
 

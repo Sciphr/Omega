@@ -1,15 +1,23 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
 
-// Start a match and initialize phases
+// Start a match - tournament creator override
 export async function POST(request, { params }) {
   try {
     const supabase = await createClient()
     const { id: matchId } = await params
-    const authHeader = request.headers.get('authorization')
-    const accessToken = authHeader?.replace('Bearer ', '')
 
-    // Get match details
+    // Get current user
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    
+    if (authError || !user) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Authentication required' 
+      }, { status: 401 })
+    }
+
+    // Get match with tournament details
     const { data: match, error: matchError } = await supabase
       .from('matches')
       .select(`
@@ -28,30 +36,11 @@ export async function POST(request, { params }) {
       }, { status: 404 })
     }
 
-    // Check permissions
-    let canStart = false
-    
-    if (accessToken) {
-      // Check if participant has access
-      const { data: privilege } = await supabase
-        .from('match_participant_privileges')
-        .select('*')
-        .eq('match_id', matchId)
-        .eq('access_token', accessToken)
-        .eq('is_active', true)
-        .single()
-        
-      canStart = !!privilege
-    } else {
-      // Check if user is tournament creator
-      const { data: { user } } = await supabase.auth.getUser()
-      canStart = user && match.tournament.creator_id === user.id
-    }
-
-    if (!canStart) {
+    // Verify user is tournament creator
+    if (match.tournament.creator_id !== user.id) {
       return NextResponse.json({ 
         success: false, 
-        error: 'You do not have permission to start this match' 
+        error: 'Only tournament creators can force start matches' 
       }, { status: 403 })
     }
 
@@ -63,12 +52,13 @@ export async function POST(request, { params }) {
       }, { status: 400 })
     }
 
-    // Update match status
+    // Start the match (tournament creator override)
     const { error: updateError } = await supabase
       .from('matches')
       .update({
         status: 'in_progress',
-        started_at: new Date().toISOString()
+        started_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       })
       .eq('id', matchId)
 
@@ -80,49 +70,23 @@ export async function POST(request, { params }) {
       }, { status: 500 })
     }
 
-    // Initialize match phases
-    const { error: phasesError } = await supabase.rpc('initialize_match_phases', {
-      match_uuid: matchId
-    })
-
-    if (phasesError) {
-      console.error('Failed to initialize match phases:', phasesError)
-      // Continue anyway - phases are optional
-    }
-
-    // Generate access tokens for participants if not already done
-    const { error: tokensError } = await supabase.rpc('generate_match_access_tokens', {
-      match_uuid: matchId
-    })
-
-    if (tokensError) {
-      console.error('Failed to generate access tokens:', tokensError)
-      // Continue anyway
-    }
-
-    // Advance to first phase if any exist
-    const { data: firstPhaseId } = await supabase.rpc('advance_match_phase', {
-      match_uuid: matchId
-    })
-
-    // Create match update event
+    // Log the creator start event
     await supabase
-      .from('match_updates')
+      .from('match_ready_events')
       .insert({
         match_id: matchId,
-        update_type: 'match_started',
-        update_data: { started_at: new Date().toISOString() },
-        participant_id: null
+        event_type: 'creator_start',
+        created_by: user.id
       })
 
     return NextResponse.json({
       success: true,
+      message: 'Match started by tournament creator',
       match: {
         ...match,
         status: 'in_progress',
         started_at: new Date().toISOString()
-      },
-      firstPhaseId
+      }
     })
   } catch (error) {
     console.error('Start match error:', error)

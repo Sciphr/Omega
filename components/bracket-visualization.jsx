@@ -207,8 +207,8 @@ export function BracketVisualization({
             {
               id: match.participant1?.id || `p1-${matchId}`,
               resultText:
-                match.participant1 && match.score
-                  ? String(match.score[match.participant1.id] || "")
+                match.participant1 && (match.participant1_score !== null || match.score)
+                  ? String(match.participant1_score ?? match.score?.[match.participant1.id] ?? "")
                   : null,
               isWinner: match.winner === match.participant1?.id,
               status: match.participant1 ? "PLAYED" : "NO_SHOW",
@@ -220,8 +220,8 @@ export function BracketVisualization({
             {
               id: match.participant2?.id || `p2-${matchId}`,
               resultText:
-                match.participant2 && match.score
-                  ? String(match.score[match.participant2.id] || "")
+                match.participant2 && (match.participant2_score !== null || match.score)
+                  ? String(match.participant2_score ?? match.score?.[match.participant2.id] ?? "")
                   : null,
               isWinner: match.winner === match.participant2?.id,
               status: match.participant2 ? "PLAYED" : "NO_SHOW",
@@ -424,8 +424,8 @@ export function BracketVisualization({
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold text-center">
-                      {selectedMatch.participant1 && selectedMatch.score
-                        ? selectedMatch.score[selectedMatch.participant1.id] ||
+                      {selectedMatch.participant1 && (selectedMatch.participant1_score !== null || selectedMatch.score)
+                        ? selectedMatch.participant1_score ?? selectedMatch.score?.[selectedMatch.participant1.id] ??
                           "-"
                         : "-"}
                     </div>
@@ -448,8 +448,8 @@ export function BracketVisualization({
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold text-center">
-                      {selectedMatch.participant2 && selectedMatch.score
-                        ? selectedMatch.score[selectedMatch.participant2.id] ||
+                      {selectedMatch.participant2 && (selectedMatch.participant2_score !== null || selectedMatch.score)
+                        ? selectedMatch.participant2_score ?? selectedMatch.score?.[selectedMatch.participant2.id] ??
                           "-"
                         : "-"}
                     </div>

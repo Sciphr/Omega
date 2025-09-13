@@ -20,6 +20,12 @@ export async function GET(request, { params }) {
       `)
       .eq('id', matchId)
       .single()
+      
+    console.log('Match data:', { 
+      matchId, 
+      participant1_ready: match?.participant1_ready, 
+      participant2_ready: match?.participant2_ready 
+    })
 
     if (matchError || !match) {
       return NextResponse.json({ 
@@ -30,10 +36,13 @@ export async function GET(request, { params }) {
 
     let hasParticipantAccess = false
     let isSpectator = false
+    let isTournamentCreator = false
     let currentParticipant = null
 
     // Check access permissions
     if (accessToken) {
+      console.log('Checking access token:', accessToken)
+      
       // Verify participant access token
       const { data: privilege, error: privilegeError } = await supabase
         .from('match_participant_privileges')
@@ -46,6 +55,8 @@ export async function GET(request, { params }) {
         .eq('is_active', true)
         .gte('expires_at', new Date().toISOString())
         .single()
+
+      console.log('Token lookup result:', { privilege, privilegeError })
 
       if (!privilegeError && privilege) {
         hasParticipantAccess = true
@@ -62,8 +73,15 @@ export async function GET(request, { params }) {
       const { data: { user } } = await supabase.auth.getUser()
       
       if (user) {
-        // Check if user is tournament creator or has spectator access
-        isSpectator = match.tournament.creator_id === user.id || match.tournament.is_public
+        // Check if user is tournament creator
+        isTournamentCreator = match.tournament.creator_id === user.id
+        
+        // Tournament creators have full access, others are spectators if tournament is public
+        if (isTournamentCreator) {
+          isSpectator = true // Creators can also spectate
+        } else {
+          isSpectator = match.tournament.is_public
+        }
         
         // Check if user is a participant (fallback if no token provided)
         if (match.participant1?.user_id === user.id) {
@@ -139,6 +157,7 @@ export async function GET(request, { params }) {
       timeRemaining,
       hasParticipantAccess,
       isSpectator,
+      isTournamentCreator,
       currentParticipant
     })
   } catch (error) {
