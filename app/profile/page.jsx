@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useAuthStore } from '@/stores/auth-store'
 import { useRouter } from 'next/navigation'
+import { useProfileData } from '@/hooks/use-profile-data'
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -13,6 +14,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import { 
   User, 
   Trophy, 
@@ -35,16 +37,18 @@ import {
   AlertCircle
 } from 'lucide-react'
 import { GAME_TEMPLATES, TOURNAMENT_STATUS } from '@/lib/types'
+import { TournamentsSkeleton, GamesSkeleton, TeamsSkeleton, LinkedAccountsSkeleton } from '@/components/profile-skeletons'
+import { Skeleton } from '@/components/ui/skeleton'
+import { supabase } from '@/lib/supabase'
 
 export default function ProfilePage() {
   const { user, loading } = useAuthStore()
   const router = useRouter()
-  const [tournaments, setTournaments] = useState([])
-  const [games, setGames] = useState([])
-  const [teams, setTeams] = useState([])
-  const [linkedAccounts, setLinkedAccounts] = useState([])
-  const [loadingData, setLoadingData] = useState(true)
   const [showUnlinkModal, setShowUnlinkModal] = useState(null)
+  const [showEditProfileModal, setShowEditProfileModal] = useState(false)
+
+  // Use React Query for data fetching
+  const { tournaments, games, teams, linkedAccounts, isLoading: loadingData, error } = useProfileData()
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -53,115 +57,15 @@ export default function ProfilePage() {
     }
   }, [user, loading, router])
 
-  // Fetch user data
+  // Scroll to top on page load
   useEffect(() => {
-    if (user) {
-      fetchUserData()
-    }
-  }, [user])
+    window.scrollTo(0, 0)
+  }, [])
 
-  const fetchUserData = async () => {
-    try {
-      setLoadingData(true)
-      
-      // Get auth token
-      const { session } = useAuthStore.getState()
-      if (!session?.access_token) {
-        console.error('No auth token available')
-        return
-      }
 
-      const headers = {
-        'Authorization': `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json'
-      }
-      
-      // Fetch tournaments, games, teams, and linked accounts in parallel
-      const [tournamentsRes, gamesRes, teamsRes, linkedAccountsRes] = await Promise.all([
-        fetch('/api/user/tournaments', { headers }),
-        fetch('/api/user/games', { headers }),
-        fetch('/api/teams', { headers }),
-        fetch('/api/user/linked-accounts', { headers })
-      ])
-      
-      // Handle tournaments
-      if (tournamentsRes.ok) {
-        const tournamentsData = await tournamentsRes.json()
-        setTournaments(tournamentsData.tournaments || [])
-      } else {
-        console.error('Failed to fetch tournaments:', await tournamentsRes.text())
-      }
-      
-      // Handle games
-      if (gamesRes.ok) {
-        const gamesData = await gamesRes.json()
-        // Transform to match component structure
-        const transformedGames = gamesData.gameProfiles?.map(profile => ({
-          id: profile.id,
-          gameId: profile.game_id,
-          displayName: profile.display_name,
-          rank: profile.rank,
-          notes: profile.notes
-        })) || []
-        setGames(transformedGames)
-      } else {
-        console.error('Failed to fetch games:', await gamesRes.text())
-      }
-      
-      // Handle teams
-      if (teamsRes.ok) {
-        const teamsData = await teamsRes.json()
-        // Transform and combine led teams and member teams
-        const allTeams = [
-          ...(teamsData.ledTeams?.map(team => ({
-            id: team.id,
-            name: team.name,
-            game: team.game,
-            role: 'leader',
-            members: team.team_members?.length || 0,
-            created_at: team.created_at
-          })) || []),
-          ...(teamsData.memberTeams?.map(team => ({
-            id: team.id,
-            name: team.name,
-            game: team.game,
-            role: 'member',
-            members: team.team_members?.length || 0,
-            created_at: team.created_at
-          })) || [])
-        ]
-        setTeams(allTeams)
-      } else {
-        console.error('Failed to fetch teams:', await teamsRes.text())
-      }
-      
-      // Handle linked accounts
-      if (linkedAccountsRes.ok) {
-        const linkedAccountsData = await linkedAccountsRes.json()
-        setLinkedAccounts(linkedAccountsData.linkedAccounts || [])
-      } else {
-        console.error('Failed to fetch linked accounts:', await linkedAccountsRes.text())
-      }
-    } catch (error) {
-      console.error('Failed to fetch user data:', error)
-    } finally {
-      setLoadingData(false)
-    }
-  }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (!user) {
-    return null // Will redirect via useEffect
+  // Handle unauthenticated state silently (redirect will happen via useEffect)
+  if (!loading && !user) {
+    return null
   }
 
   return (
@@ -169,72 +73,380 @@ export default function ProfilePage() {
       <div className="container mx-auto px-4 py-8">
         {/* Profile Header */}
         <div className="mb-8">
-          <div className="flex items-center space-x-4 mb-4">
-            <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
-              <User className="h-8 w-8 text-primary" />
+          {loading || !user ? (
+            <div className="flex items-center space-x-4 mb-4">
+              <Skeleton className="w-16 h-16 rounded-full" />
+              <div className="space-y-2">
+                <Skeleton className="h-8 w-48" />
+                <Skeleton className="h-4 w-64" />
+                <Skeleton className="h-4 w-32" />
+              </div>
+              <div className="ml-auto">
+                <Skeleton className="h-9 w-28" />
+              </div>
             </div>
-            <div>
-              <h1 className="text-3xl font-bold">
-                {user.user_metadata?.display_name || user.user_metadata?.username || 'User'}
-              </h1>
-              <p className="text-muted-foreground">{user.email}</p>
-              <p className="text-sm text-muted-foreground">
-                Member since {new Date(user.created_at).toLocaleDateString()}
-              </p>
+          ) : (
+            <div className="flex items-center space-x-4 mb-4">
+              <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
+                <User className="h-8 w-8 text-primary" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold">
+                  {user.user_metadata?.display_name || user.user_metadata?.username || 'User'}
+                </h1>
+                <p className="text-muted-foreground">{user.email}</p>
+                <p className="text-sm text-muted-foreground">
+                  Member since {new Date(user.created_at).toLocaleDateString()}
+                </p>
+              </div>
+              <div className="ml-auto">
+                <Button variant="outline" onClick={() => setShowEditProfileModal(true)}>
+                  <Settings className="h-4 w-4 mr-2" />
+                  Edit Profile
+                </Button>
+              </div>
             </div>
-            <div className="ml-auto">
-              <Button variant="outline">
-                <Settings className="h-4 w-4 mr-2" />
-                Edit Profile
-              </Button>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Profile Content */}
         <Tabs defaultValue="tournaments" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="tournaments">Tournaments</TabsTrigger>
             <TabsTrigger value="games">Games</TabsTrigger>
             <TabsTrigger value="teams">Teams</TabsTrigger>
             <TabsTrigger value="accounts">Linked Accounts</TabsTrigger>
-            <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
 
           <TabsContent value="tournaments">
-            <TournamentsTab tournaments={tournaments} loading={loadingData} />
+            <TournamentsTab tournaments={tournaments.data || []} loading={tournaments.isLoading} />
           </TabsContent>
 
           <TabsContent value="games">
-            <GamesTab games={games} loading={loadingData} />
+            <GamesTab games={games.data || []} loading={games.isLoading} refetchGames={games.refetch} />
           </TabsContent>
 
           <TabsContent value="teams">
-            <TeamsTab teams={teams} loading={loadingData} />
+            <TeamsTab teams={teams.data || []} loading={teams.isLoading} />
           </TabsContent>
 
           <TabsContent value="accounts">
             <LinkedAccountsTab 
-              linkedAccounts={linkedAccounts} 
-              loading={loadingData}
+              linkedAccounts={linkedAccounts.data || []} 
+              loading={linkedAccounts.isLoading}
               showUnlinkModal={showUnlinkModal}
               setShowUnlinkModal={setShowUnlinkModal}
-              setLinkedAccounts={setLinkedAccounts}
+              refetchLinkedAccounts={linkedAccounts.refetch}
             />
-          </TabsContent>
-
-          <TabsContent value="settings">
-            <SettingsTab user={user} />
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Edit Profile Modal */}
+      <Dialog open={showEditProfileModal} onOpenChange={setShowEditProfileModal}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Edit Profile</DialogTitle>
+            <DialogDescription>
+              Update your profile information and account settings
+            </DialogDescription>
+          </DialogHeader>
+          <EditProfileForm 
+            user={user} 
+            onClose={() => setShowEditProfileModal(false)}
+            onSuccess={() => {
+              // You might want to refresh user data here
+              setShowEditProfileModal(false)
+            }}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
+  )
+}
+
+function EditProfileForm({ user, onClose, onSuccess }) {
+  const [formData, setFormData] = useState({
+    displayName: user?.user_metadata?.display_name || '',
+    username: user?.user_metadata?.username || '',
+    email: user?.email || '',
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  })
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [notification, setNotification] = useState(null)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setIsSubmitting(true)
+
+    try {
+      const { session } = useAuthStore.getState()
+      if (!session?.access_token) {
+        setNotification({ type: 'error', message: 'Authentication required' })
+        return
+      }
+
+      // Validate password fields if user is trying to change password
+      const isChangingPassword = formData.currentPassword || formData.newPassword || formData.confirmPassword
+      if (isChangingPassword) {
+        if (!formData.currentPassword) {
+          setNotification({ type: 'error', message: 'Please enter your current password' })
+          return
+        }
+        if (!formData.newPassword) {
+          setNotification({ type: 'error', message: 'Please enter a new password' })
+          return
+        }
+        if (formData.newPassword !== formData.confirmPassword) {
+          setNotification({ type: 'error', message: 'New passwords do not match' })
+          return
+        }
+        if (formData.newPassword.length < 6) {
+          setNotification({ type: 'error', message: 'New password must be at least 6 characters long' })
+          return
+        }
+      }
+
+      // Update user data in Supabase Auth
+      const updateData = {
+        data: {
+          display_name: formData.displayName,
+          username: formData.username
+        }
+      }
+
+      // Only include email if it's different from current email
+      if (formData.email !== user.email) {
+        updateData.email = formData.email
+      }
+
+      // Handle password change separately via API
+      if (isChangingPassword) {
+        const passwordResponse = await fetch('/api/user/change-password', {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            currentPassword: formData.currentPassword,
+            newPassword: formData.newPassword
+          })
+        })
+
+        const passwordResult = await passwordResponse.json()
+        
+        if (!passwordResponse.ok) {
+          setNotification({ type: 'error', message: passwordResult.error || 'Failed to change password' })
+          return
+        }
+
+        // Handle new session if provided
+        if (passwordResult.newSession) {
+          try {
+            // Set the new session in Supabase
+            const { error: setSessionError } = await supabase.auth.setSession(passwordResult.newSession)
+            
+            if (setSessionError) {
+              console.warn('Could not set new session:', setSessionError)
+            } else {
+              console.log('New session set successfully after password change')
+              // Update the auth store
+              const { initialize } = useAuthStore.getState()
+              await initialize()
+            }
+          } catch (sessionError) {
+            console.warn('Session update failed:', sessionError)
+          }
+        }
+
+        // If only changing password, skip other updates to avoid session conflicts
+        const hasOtherChanges = formData.displayName !== (user?.user_metadata?.display_name || '') ||
+                               formData.username !== (user?.user_metadata?.username || '') ||
+                               formData.email !== user.email
+
+        if (!hasOtherChanges) {
+          setNotification({ type: 'success', message: 'Password updated successfully!' })
+          setTimeout(() => {
+            onSuccess()
+          }, 1500)
+          return
+        }
+      }
+
+      // Only call updateUser if there are non-password fields to update
+      if (Object.keys(updateData.data).length > 0 || updateData.email) {
+        const { error: authError } = await supabase.auth.updateUser(updateData)
+        
+        if (authError) {
+          console.error('Error updating user:', authError)
+          setNotification({ type: 'error', message: 'Failed to update profile: ' + authError.message })
+          return
+        }
+      }
+
+      // Update the users table to keep data consistent (only if not password-only change)
+      if (!isChangingPassword || (formData.displayName !== (user?.user_metadata?.display_name || '') ||
+                                 formData.username !== (user?.user_metadata?.username || '') ||
+                                 formData.email !== user.email)) {
+        const profileResponse = await fetch('/api/user/profile', {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            display_name: formData.displayName,
+            username: formData.username,
+            email: formData.email
+          })
+        })
+
+        if (!profileResponse.ok) {
+          const errorData = await profileResponse.json()
+          console.error('Error updating users table:', errorData)
+          setNotification({ type: 'error', message: `Failed to update profile in users table: ${errorData.error}` })
+          return
+        }
+      }
+
+      if (formData.email !== user.email && isChangingPassword) {
+        setNotification({ type: 'success', message: 'Profile updated successfully! Please check your email to verify your new email address. Your password has also been changed.' })
+      } else if (formData.email !== user.email) {
+        setNotification({ type: 'success', message: 'Profile updated successfully! Please check your email to verify your new email address.' })
+      } else if (isChangingPassword) {
+        setNotification({ type: 'success', message: 'Profile updated successfully! Your password has been changed.' })
+      } else {
+        setNotification({ type: 'success', message: 'Profile updated successfully!' })
+      }
+
+      setTimeout(() => {
+        onSuccess()
+      }, 1500)
+    } catch (error) {
+      console.error('Error updating profile:', error)
+      setNotification({ type: 'error', message: 'Failed to update profile. Please try again.' })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Notification */}
+      {notification && (
+        <div className={`p-3 rounded-md border ${
+          notification.type === 'success' 
+            ? 'bg-green-50 border-green-200 text-green-800' 
+            : 'bg-red-50 border-red-200 text-red-800'
+        }`}>
+          <div className="flex items-center">
+            {notification.type === 'success' ? (
+              <CheckCircle className="h-4 w-4 mr-2" />
+            ) : (
+              <AlertCircle className="h-4 w-4 mr-2" />
+            )}
+            <span className="text-sm">{notification.message}</span>
+          </div>
+        </div>
+      )}
+
+      <div>
+        <Label htmlFor="displayName">Display Name</Label>
+        <Input
+          id="displayName"
+          value={formData.displayName}
+          onChange={(e) => setFormData(prev => ({ ...prev, displayName: e.target.value }))}
+          placeholder="Enter your display name"
+          disabled={isSubmitting}
+        />
+      </div>
+
+      <div>
+        <Label htmlFor="username">Username</Label>
+        <Input
+          id="username"
+          value={formData.username}
+          onChange={(e) => setFormData(prev => ({ ...prev, username: e.target.value }))}
+          placeholder="Enter your username"
+          disabled={isSubmitting}
+        />
+      </div>
+
+      <div>
+        <Label htmlFor="email">Email</Label>
+        <Input
+          id="email"
+          type="email"
+          value={formData.email}
+          onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
+          placeholder="Enter your email"
+          disabled={isSubmitting}
+        />
+      </div>
+
+
+      {/* Password Change Section */}
+      <div className="pt-4 border-t space-y-4">
+        <div className="flex items-center space-x-2">
+          <Lock className="h-4 w-4 text-muted-foreground" />
+          <Label className="text-sm font-medium">Change Password (Optional)</Label>
+        </div>
+        
+        <div>
+          <Label htmlFor="currentPassword">Current Password</Label>
+          <Input
+            id="currentPassword"
+            type="password"
+            value={formData.currentPassword}
+            onChange={(e) => setFormData(prev => ({ ...prev, currentPassword: e.target.value }))}
+            placeholder="Enter current password"
+            disabled={isSubmitting}
+          />
+        </div>
+        
+        <div>
+          <Label htmlFor="newPassword">New Password</Label>
+          <Input
+            id="newPassword"
+            type="password"
+            value={formData.newPassword}
+            onChange={(e) => setFormData(prev => ({ ...prev, newPassword: e.target.value }))}
+            placeholder="Enter new password"
+            disabled={isSubmitting}
+          />
+        </div>
+        
+        <div>
+          <Label htmlFor="confirmPassword">Confirm New Password</Label>
+          <Input
+            id="confirmPassword"
+            type="password"
+            value={formData.confirmPassword}
+            onChange={(e) => setFormData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+            placeholder="Confirm new password"
+            disabled={isSubmitting}
+          />
+        </div>
+      </div>
+
+      <div className="flex space-x-2">
+        <Button type="submit" disabled={isSubmitting}>
+          {isSubmitting ? 'Saving...' : 'Save Changes'}
+        </Button>
+        <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
+          Cancel
+        </Button>
+      </div>
+    </form>
   )
 }
 
 function TournamentsTab({ tournaments, loading }) {
   if (loading) {
-    return <div className="text-center py-8">Loading tournaments...</div>
+    return <TournamentsSkeleton />
   }
 
   const activeTournaments = tournaments.filter(t => t.status !== 'completed')
@@ -288,11 +500,11 @@ function TournamentsTab({ tournaments, loading }) {
   )
 }
 
-function GamesTab({ games, loading }) {
+function GamesTab({ games, loading, refetchGames }) {
   const [isAddingGame, setIsAddingGame] = useState(false)
 
   if (loading) {
-    return <div className="text-center py-8">Loading games...</div>
+    return <GamesSkeleton />
   }
 
   return (
@@ -302,7 +514,7 @@ function GamesTab({ games, loading }) {
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center space-x-2">
               <Gamepad2 className="h-5 w-5 text-primary" />
-              <span>My Games ({games.length})</span>
+              <span>My Games ({games.data?.length || 0})</span>
             </CardTitle>
             <Dialog open={isAddingGame} onOpenChange={setIsAddingGame}>
               <DialogTrigger asChild>
@@ -318,15 +530,15 @@ function GamesTab({ games, loading }) {
                     Add a game you play and set your display name and rank
                   </DialogDescription>
                 </DialogHeader>
-                <AddGameForm onClose={() => setIsAddingGame(false)} />
+                <AddGameForm onClose={() => setIsAddingGame(false)} onSuccess={refetchGames} />
               </DialogContent>
             </Dialog>
           </div>
         </CardHeader>
         <CardContent>
-          {games.length > 0 ? (
+          {games.data?.length > 0 ? (
             <div className="grid gap-4">
-              {games.map((game) => (
+              {games.data.map((game) => (
                 <GameCard key={game.id} game={game} />
               ))}
             </div>
@@ -345,7 +557,7 @@ function GamesTab({ games, loading }) {
 
 function TeamsTab({ teams, loading }) {
   if (loading) {
-    return <div className="text-center py-8">Loading teams...</div>
+    return <TeamsSkeleton />
   }
 
   const myTeams = teams.filter(t => t.role === 'leader')
@@ -407,33 +619,6 @@ function TeamsTab({ teams, loading }) {
   )
 }
 
-function SettingsTab({ user }) {
-  return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Account Settings</CardTitle>
-          <CardDescription>Manage your account preferences</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" value={user.email} disabled />
-          </div>
-          <div>
-            <Label htmlFor="displayName">Display Name</Label>
-            <Input 
-              id="displayName" 
-              defaultValue={user.user_metadata?.display_name || ''} 
-              placeholder="Enter display name"
-            />
-          </div>
-          <Button>Save Changes</Button>
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
 
 function TournamentCard({ tournament }) {
   const gameTemplate = Object.values(GAME_TEMPLATES).find(g => g.id === tournament.game)
@@ -558,7 +743,7 @@ function TeamCard({ team }) {
   )
 }
 
-function AddGameForm({ onClose }) {
+function AddGameForm({ onClose, onSuccess }) {
   const [selectedGame, setSelectedGame] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [rank, setRank] = useState('')
@@ -592,8 +777,8 @@ function AddGameForm({ onClose }) {
       })
 
       if (response.ok) {
-        // Refresh the page data
-        window.location.reload()
+        // Refetch games data
+        onSuccess?.()
         onClose()
       } else {
         const errorData = await response.json()
@@ -683,9 +868,9 @@ const PLATFORMS = {
   }
 }
 
-function LinkedAccountsTab({ linkedAccounts, loading, showUnlinkModal, setShowUnlinkModal, setLinkedAccounts }) {
+function LinkedAccountsTab({ linkedAccounts, loading, showUnlinkModal, setShowUnlinkModal, refetchLinkedAccounts }) {
   if (loading) {
-    return <div className="text-center py-8">Loading linked accounts...</div>
+    return <LinkedAccountsSkeleton />
   }
 
   const handleLinkAccount = (platform) => {
@@ -712,10 +897,8 @@ function LinkedAccountsTab({ linkedAccounts, loading, showUnlinkModal, setShowUn
       const result = await response.json()
       
       if (result.success) {
-        // Update local state
-        setLinkedAccounts(prev => prev.map(account => 
-          account.id === accountId ? { ...account, is_public: isPublic } : account
-        ))
+        // Refetch linked accounts data
+        refetchLinkedAccounts()
       } else {
         console.error('Failed to update visibility:', result.error)
         alert('Failed to update visibility settings')
@@ -740,8 +923,8 @@ function LinkedAccountsTab({ linkedAccounts, loading, showUnlinkModal, setShowUn
       const result = await response.json()
       
       if (result.success) {
-        // Remove from local state
-        setLinkedAccounts(prev => prev.filter(account => account.id !== accountId))
+        // Refetch linked accounts data
+        refetchLinkedAccounts()
         setShowUnlinkModal(null)
         alert('Account unlinked successfully')
       } else {

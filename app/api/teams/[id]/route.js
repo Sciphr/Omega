@@ -20,6 +20,7 @@ export async function GET(request, { params }) {
       .select(`
         *,
         team_members (
+          id,
           user_id,
           role,
           joined_at,
@@ -32,12 +33,29 @@ export async function GET(request, { params }) {
       .single();
 
     if (team && team.team_members) {
+      // Check if captain is already in team members
+      const captainIsMember = team.team_members.some(m => m.user_id === team.captain_id);
+      
+      // If captain is not a member, add them (for backward compatibility)
+      if (!captainIsMember && team.captain_id) {
+        team.team_members.unshift({
+          id: `captain-${team.captain_id}`,
+          user_id: team.captain_id,
+          role: 'leader',
+          joined_at: team.created_at,
+          is_registered: true
+        });
+      }
+
       // For registered users, fetch their display names from the users table
       const registeredMembers = team.team_members.filter(m => m.is_registered && m.user_id);
       
       if (registeredMembers.length > 0) {
         const userIds = registeredMembers.map(m => m.user_id);
-        const { data: users } = await supabase
+        
+        // Use service client for user lookup to bypass RLS
+        const serviceSupabase = createClient(supabaseUrl, process.env.SUPABASE_SERVICE_ROLE_KEY);
+        const { data: users, error: usersError } = await serviceSupabase
           .from('users')
           .select('id, display_name, username, email')
           .in('id', userIds);

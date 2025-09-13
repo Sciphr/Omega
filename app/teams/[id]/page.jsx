@@ -74,7 +74,7 @@ export default function TeamPage({ params }) {
     }
   }
 
-  const isLeader = user && team && team.leader_id === user.id
+  const isLeader = user && team && team.captain_id === user.id
   const isMember = team?.team_members?.some(member => member.user_id === user.id)
   const gameTemplate = Object.values(GAME_TEMPLATES).find(g => g.id === team?.game)
 
@@ -217,7 +217,20 @@ export default function TeamPage({ params }) {
               <CardContent>
                 <div className="space-y-4">
                   {team.team_members?.map((member) => (
-                    <MemberCard key={member.user_id} member={member} isLeader={isLeader} teamId={team.id} />
+                    <MemberCard 
+                      key={member.id || member.user_id} 
+                      member={member} 
+                      isLeader={isLeader} 
+                      teamId={team.id}
+                      team={team}
+                      user={user}
+                      onMemberRemoved={(memberId) => {
+                        setTeam(prevTeam => ({
+                          ...prevTeam,
+                          team_members: prevTeam.team_members.filter(m => m.id !== memberId)
+                        }))
+                      }}
+                    />
                   ))}
                   
                   {!team.team_members?.length && (
@@ -288,7 +301,9 @@ export default function TeamPage({ params }) {
           <InviteUserForm 
             teamId={teamId} 
             onClose={() => setShowInviteModal(false)} 
-            onSuccess={fetchTeam} 
+            onSuccess={fetchTeam}
+            team={team}
+            user={user}
           />
         </DialogContent>
       </Dialog>
@@ -313,8 +328,45 @@ export default function TeamPage({ params }) {
   )
 }
 
-function MemberCard({ member, isLeader, teamId }) {
+function MemberCard({ member, isLeader, teamId, onMemberRemoved, team, user }) {
   const isLeaderMember = member.role === 'leader'
+  const [isRemoving, setIsRemoving] = useState(false)
+  
+  const handleRemoveMember = async () => {
+    if (!confirm(`Are you sure you want to remove ${member.display_name || 'this member'} from the team?`)) {
+      return
+    }
+
+    setIsRemoving(true)
+    try {
+      const { session } = useAuthStore.getState()
+      if (!session?.access_token) {
+        alert('Authentication required')
+        return
+      }
+
+      const response = await fetch(`/api/teams/${teamId}/members?member_id=${member.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      })
+
+      if (response.ok) {
+        if (onMemberRemoved) {
+          onMemberRemoved(member.id)
+        }
+      } else {
+        const errorData = await response.json()
+        alert('Failed to remove member: ' + errorData.error)
+      }
+    } catch (error) {
+      console.error('Error removing member:', error)
+      alert('Failed to remove member. Please try again.')
+    } finally {
+      setIsRemoving(false)
+    }
+  }
   
   return (
     <div className="flex items-center justify-between p-3 border rounded-lg">
@@ -343,12 +395,27 @@ function MemberCard({ member, isLeader, teamId }) {
         <span className="text-sm text-muted-foreground">
           Joined {new Date(member.joined_at).toLocaleDateString()}
         </span>
+        {isLeader && !isLeaderMember && (
+          <Button 
+            size="sm" 
+            variant="outline" 
+            onClick={handleRemoveMember}
+            disabled={isRemoving}
+            className="ml-2"
+          >
+            {isRemoving ? (
+              <div className="h-3 w-3 animate-spin border-2 border-current border-t-transparent rounded-full" />
+            ) : (
+              <Trash2 className="h-3 w-3" />
+            )}
+          </Button>
+        )}
       </div>
     </div>
   )
 }
 
-function InviteUserForm({ teamId, onClose, onSuccess }) {
+function InviteUserForm({ teamId, onClose, onSuccess, team, user }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [isSearching, setIsSearching] = useState(false)
@@ -367,7 +434,13 @@ function InviteUserForm({ teamId, onClose, onSuccess }) {
       const data = await response.json()
       
       if (data.success) {
-        setSearchResults(data.users)
+        // Filter out current user and existing team members
+        const existingMemberIds = team?.team_members?.map(m => m.user_id) || []
+        const filteredUsers = data.users.filter(searchUser => 
+          searchUser.id !== user?.id && // Exclude current user
+          !existingMemberIds.includes(searchUser.id) // Exclude existing members
+        )
+        setSearchResults(filteredUsers)
       } else {
         console.error('User search failed:', data.error)
         setSearchResults([])

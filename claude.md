@@ -5,3 +5,5 @@ make sure to look at what tables we have in supabase so we konw what is possible
 give me the queries to add things to the tables if needed
 
 never try to do 'simpler' or 'quick fixes' or 'temporary' fixes. always code like it's for the finished product
+
+try to not use browser Alerts; always use in-appplication UI responses

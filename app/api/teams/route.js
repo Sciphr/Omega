@@ -153,7 +153,8 @@ export async function POST(request) {
       .insert({
         team_id: team.id,
         user_id: user.id,
-        role: 'leader'
+        role: 'leader',
+        is_registered: true
       });
 
     if (memberError) {

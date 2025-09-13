@@ -1,11 +1,19 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { 
   Select, 
   SelectContent, 
@@ -28,6 +36,7 @@ import {
 import { GAME_TEMPLATES, TOURNAMENT_STATUS, TOURNAMENT_FORMAT } from '@/lib/types'
 
 export default function TournamentsPage() {
+  const searchParams = useSearchParams()
   const [tournaments, setTournaments] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -37,6 +46,17 @@ export default function TournamentsPage() {
     status: 'all',
     format: 'all'
   })
+
+  // Set initial search from URL parameter
+  useEffect(() => {
+    const searchQuery = searchParams.get('search')
+    if (searchQuery) {
+      setFilters(prev => ({
+        ...prev,
+        search: searchQuery
+      }))
+    }
+  }, [searchParams])
 
   // Fetch tournaments from API
   useEffect(() => {
@@ -206,6 +226,7 @@ export default function TournamentsPage() {
 }
 
 function TournamentCard({ tournament }) {
+  const [showStandings, setShowStandings] = useState(false)
   const gameTemplate = Object.values(GAME_TEMPLATES).find(g => g.id === tournament.game)
   
   const getStatusBadge = (status) => {
@@ -222,9 +243,13 @@ function TournamentCard({ tournament }) {
   }
 
   const getProgressPercentage = () => {
-    const current = tournament.current_participants || 0
+    const current = tournament.participants?.[0]?.count || 0
     const max = tournament.max_participants || 1
     return (current / max) * 100
+  }
+
+  const getCurrentParticipants = () => {
+    return tournament.participants?.[0]?.count || 0
   }
 
   return (
@@ -265,7 +290,7 @@ function TournamentCard({ tournament }) {
             <div className="flex items-center space-x-1">
               <Users className="h-4 w-4 text-muted-foreground" />
               <span>
-                {tournament.current_participants || 0}/{tournament.max_participants}
+                {getCurrentParticipants()}/{tournament.max_participants}
               </span>
             </div>
           </div>
@@ -316,16 +341,173 @@ function TournamentCard({ tournament }) {
             )}
             
             {tournament.status === 'completed' && (
-              <Link href={`/tournament/${tournament.id}`} className="flex-1">
-                <Button variant="secondary" className="w-full" size="sm">
-                  <Trophy className="h-4 w-4 mr-2" />
-                  Results
-                </Button>
-              </Link>
+              <Button 
+                variant="secondary" 
+                className="w-full flex-1" 
+                size="sm"
+                onClick={() => setShowStandings(true)}
+              >
+                <Trophy className="h-4 w-4 mr-2" />
+                Results
+              </Button>
             )}
           </div>
         </div>
       </CardContent>
+
+      {/* Standings Modal */}
+      <Dialog open={showStandings} onOpenChange={setShowStandings}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center space-x-2">
+              <Trophy className="h-5 w-5 text-primary" />
+              <span>{tournament.name} - Final Results</span>
+            </DialogTitle>
+            <DialogDescription>
+              Tournament standings and final rankings
+            </DialogDescription>
+          </DialogHeader>
+          <StandingsContent tournament={tournament} />
+        </DialogContent>
+      </Dialog>
     </Card>
+  )
+}
+
+function StandingsContent({ tournament }) {
+  const [standings, setStandings] = useState([])
+  const [tournamentData, setTournamentData] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (tournament.id) {
+      fetchStandings()
+    }
+  }, [tournament.id])
+
+  const fetchStandings = async () => {
+    setLoading(true)
+    try {
+      const response = await fetch(`/api/tournaments/${tournament.id}/standings`)
+      const result = await response.json()
+      
+      if (result.success) {
+        setStandings(result.standings || [])
+        setTournamentData(result.tournament || null)
+      } else {
+        console.error('Failed to fetch standings:', result.error)
+      }
+    } catch (error) {
+      console.error('Error fetching standings:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="flex items-center justify-between p-3 border rounded animate-pulse">
+            <div className="flex items-center space-x-3">
+              <div className="w-6 h-6 bg-gray-200 rounded"></div>
+              <div className="h-4 bg-gray-200 rounded w-24"></div>
+            </div>
+            <div className="h-4 bg-gray-200 rounded w-16"></div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  if (!standings.length) {
+    return (
+      <div className="text-center py-8">
+        <Trophy className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+        <p className="text-muted-foreground">No participants found</p>
+      </div>
+    )
+  }
+
+  const isCompleted = tournamentData?.is_completed || false
+  const hasScores = standings.some(s => s.score > 0)
+  const hasMatches = standings.some(s => s.matches_won > 0 || s.matches_lost > 0)
+
+  const getRankIcon = (position) => {
+    switch (position) {
+      case 1:
+        return <div className="w-6 h-6 bg-gradient-to-r from-yellow-400 to-yellow-600 rounded-full flex items-center justify-center text-white text-sm font-bold">1</div>
+      case 2:
+        return <div className="w-6 h-6 bg-gradient-to-r from-gray-300 to-gray-500 rounded-full flex items-center justify-center text-white text-sm font-bold">2</div>
+      case 3:
+        return <div className="w-6 h-6 bg-gradient-to-r from-amber-600 to-amber-800 rounded-full flex items-center justify-center text-white text-sm font-bold">3</div>
+      default:
+        return <div className="w-6 h-6 bg-muted rounded-full flex items-center justify-center text-sm font-semibold">{position}</div>
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Tournament Status Header */}
+      <div className="flex items-center justify-between pb-2 border-b">
+        <div className="flex items-center space-x-2">
+          <Trophy className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">
+            {isCompleted ? 'Final Results' : 'Current Participants'}
+          </span>
+        </div>
+        {!isCompleted && (
+          <Badge variant="outline" className="text-xs">
+            In Progress
+          </Badge>
+        )}
+      </div>
+
+      {/* Standings List */}
+      <div className="space-y-2 max-h-96 overflow-y-auto">
+        {standings.map((standing, index) => (
+          <div 
+            key={standing.user_id || index} 
+            className={`flex items-center justify-between p-3 border rounded-lg ${
+              isCompleted && standing.final_position <= 3 
+                ? 'bg-gradient-to-r from-primary/5 to-accent/5' 
+                : 'hover:bg-muted/50'
+            }`}
+          >
+            <div className="flex items-center space-x-3">
+              {getRankIcon(standing.final_position)}
+              <div>
+                <div className="flex items-center space-x-2">
+                  <p className="font-medium">{standing.user_name}</p>
+                  {standing.participant_type === 'manual' && (
+                    <Badge variant="outline" className="text-xs">
+                      Manual
+                    </Badge>
+                  )}
+                </div>
+                {hasScores && standing.score > 0 && (
+                  <p className="text-sm text-muted-foreground">Score: {standing.score}</p>
+                )}
+                {!isCompleted && standing.seed && (
+                  <p className="text-xs text-muted-foreground">Seed #{standing.seed}</p>
+                )}
+              </div>
+            </div>
+            <div className="text-right">
+              {standing.prize && (
+                <Badge variant="secondary" className="mb-1">
+                  {standing.prize}
+                </Badge>
+              )}
+              {hasMatches && (standing.matches_won > 0 || standing.matches_lost > 0) && (
+                <p className="text-sm text-muted-foreground">
+                  {standing.matches_won}W - {standing.matches_lost}L
+                </p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }

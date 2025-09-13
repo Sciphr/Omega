@@ -1,9 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
 import { useAuthStore } from "@/stores/auth-store";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,9 +35,6 @@ import {
 export function Navigation() {
   const pathname = usePathname();
   const { user, signOut, loading } = useAuthStore();
-
-  // Debug logging
-  console.log('Navigation render - user:', user, 'loading:', loading);
 
   const navigation = [
     { name: "Home", href: "/" },
@@ -70,20 +77,15 @@ export function Navigation() {
 
           {/* User Actions */}
           <div className="flex items-center space-x-4">
-            {/* Quick Create Button */}
-            <Link href="/create">
-              <Button size="sm" className="hidden sm:flex">
-                <Plus className="h-4 w-4 mr-2" />
-                Create Tournament
-              </Button>
-            </Link>
-
             {/* Search Button */}
-            <Button variant="outline" size="sm" className="hidden sm:flex">
-              <Search className="h-4 w-4" />
-            </Button>
+            <SearchButton />
 
-            {user ? (
+            {loading ? (
+              // Loading state - show a skeleton or empty space to prevent flickering
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-full bg-muted animate-pulse"></div>
+              </div>
+            ) : user ? (
               // Authenticated User Menu
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -316,4 +318,57 @@ export function Footer() {
       </div>
     </footer>
   );
+}
+
+function SearchButton() {
+  const [isOpen, setIsOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const router = useRouter()
+
+  const handleSearch = (e) => {
+    e.preventDefault()
+    if (searchQuery.trim()) {
+      // Navigate to tournaments page with search query
+      router.push(`/tournaments?search=${encodeURIComponent(searchQuery.trim())}`)
+      setIsOpen(false)
+      setSearchQuery('')
+    }
+  }
+
+  return (
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="hidden sm:flex">
+          <Search className="h-4 w-4" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Search Tournaments</DialogTitle>
+          <DialogDescription>
+            Search for tournaments by name, game, or description
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSearch} className="space-y-4">
+          <div>
+            <Input
+              placeholder="Enter search terms..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div className="flex justify-end space-x-2">
+            <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!searchQuery.trim()}>
+              <Search className="h-4 w-4 mr-2" />
+              Search
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
 }
