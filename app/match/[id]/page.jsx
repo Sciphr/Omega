@@ -32,6 +32,7 @@ import {
   Loader2
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { LeagueOfLegendsDraft } from '@/components/draft/LeagueOfLegendsDraft'
 
 export default function MatchPage() {
   const params = useParams()
@@ -71,6 +72,11 @@ export default function MatchPage() {
   const [scoreSubmissions, setScoreSubmissions] = useState([])
   const [currentSubmission, setCurrentSubmission] = useState(null)
   const [showCounterProposeModal, setShowCounterProposeModal] = useState(null)
+  const [isVerifying, setIsVerifying] = useState(false)
+
+  // Best of X game states
+  const [gameScores, setGameScores] = useState({ participant1: 0, participant2: 0 })
+  const [currentGameNumber, setCurrentGameNumber] = useState(1)
   
   // Ready states
   const [participant1Ready, setParticipant1Ready] = useState(false)
@@ -91,6 +97,15 @@ export default function MatchPage() {
       return cleanup
     }
   }, [params.id, accessToken])
+
+  // Initialize Best of X state when match loads
+  useEffect(() => {
+    if (match && isSeriesFormat()) {
+      const seriesScore = getSeriesScore()
+      setCurrentGameNumber(seriesScore.currentGame)
+      setGameScores({ participant1: 0, participant2: 0 }) // Reset for current game
+    }
+  }, [match])
 
   // Cleanup real-time channel on unmount
   useEffect(() => {
@@ -273,10 +288,7 @@ export default function MatchPage() {
       
       if (result.success) {
         console.log('Ready status updated:', result.message)
-        // Fallback: manually reload match data since real-time isn't working
-        setTimeout(() => {
-          loadMatch()
-        }, 500)
+        // Real-time subscription will handle the update automatically
       } else {
         console.error('Failed to update ready status:', result.error)
         alert('Failed to update ready status: ' + result.error)
@@ -286,6 +298,97 @@ export default function MatchPage() {
       alert('Failed to update ready status. Please try again.')
     } finally {
       setIsMarkingReady(false)
+    }
+  }
+
+  const handleSubmitGame = async () => {
+    if (!hasParticipantAccess || !currentParticipant || !isSeriesFormat()) return
+
+    setIsSubmittingScore(true)
+    try {
+      const seriesScore = getSeriesScore()
+      const gameWinner = gameScores.participant1 > gameScores.participant2 ? 1 :
+                         gameScores.participant2 > gameScores.participant1 ? 2 : 0
+
+      if (gameWinner === 0) {
+        alert('Please select a winner for this game (one score must be higher than the other)')
+        setIsSubmittingScore(false)
+        return
+      }
+
+      // Calculate new series score
+      const newParticipant1Wins = seriesScore.participant1_wins + (gameWinner === 1 ? 1 : 0)
+      const newParticipant2Wins = seriesScore.participant2_wins + (gameWinner === 2 ? 1 : 0)
+      const maxWins = getMaxWins()
+      const seriesComplete = newParticipant1Wins >= maxWins || newParticipant2Wins >= maxWins
+
+      // Create new games array
+      const newGames = [...(seriesScore.games || [])]
+      newGames.push({
+        game_number: currentGameNumber,
+        participant1_score: gameScores.participant1,
+        participant2_score: gameScores.participant2,
+        winner_id: gameWinner === 1 ? match.participant1_id : match.participant2_id,
+        status: 'completed'
+      })
+
+      // Add pending game if series not complete
+      if (!seriesComplete) {
+        newGames.push({
+          game_number: currentGameNumber + 1,
+          participant1_score: 0,
+          participant2_score: 0,
+          winner_id: null,
+          status: 'pending'
+        })
+      }
+
+      const newScoreData = {
+        format: match.match_format,
+        games: newGames,
+        overall: {
+          participant1_wins: newParticipant1Wins,
+          participant2_wins: newParticipant2Wins,
+          status: seriesComplete ? 'completed' : 'in_progress'
+        }
+      }
+
+      const response = await fetch(`/api/matches/${params.id}/score`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          credentials: 'include',
+          ...(accessToken && { 'Authorization': `Bearer ${accessToken}` })
+        },
+        body: JSON.stringify({
+          participant1_score: newParticipant1Wins,
+          participant2_score: newParticipant2Wins,
+          score_data: newScoreData,
+          game_number: currentGameNumber,
+          notes: `Game ${currentGameNumber} result: ${gameScores.participant1}-${gameScores.participant2}`
+        })
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        console.log('Game score submitted successfully:', result.message)
+        alert(`Game ${currentGameNumber} score submitted for verification!`)
+
+        // Reset game form
+        setGameScores({ participant1: 0, participant2: 0 })
+
+        // Reload score submissions (they handle state updates via real-time)
+        loadScoreSubmissions()
+      } else {
+        console.error('Failed to submit game score:', result.error)
+        alert('Failed to submit game score: ' + result.error)
+      }
+    } catch (error) {
+      console.error('Failed to submit game score:', error)
+      alert('Failed to submit game score. Please try again.')
+    } finally {
+      setIsSubmittingScore(false)
     }
   }
 
@@ -316,11 +419,8 @@ export default function MatchPage() {
         // Reset form
         setSubmissionScores({ participant1: 0, participant2: 0 })
         setSubmissionNotes('')
-        // Reload match data to show updated status
-        setTimeout(() => {
-          loadMatch()
-          loadScoreSubmissions()
-        }, 500)
+        // Reload score submissions (they handle state updates via real-time)
+        loadScoreSubmissions()
       } else {
         console.error('Failed to submit score:', result.error)
         alert('Failed to submit score: ' + result.error)
@@ -356,6 +456,7 @@ export default function MatchPage() {
   }
 
   const handleVerifyScore = async (scoreSubmissionId, actionType, notes = null) => {
+    setIsVerifying(true)
     try {
       const response = await fetch(`/api/matches/${params.id}/score/verify`, {
         method: 'POST',
@@ -376,11 +477,8 @@ export default function MatchPage() {
       if (result.success) {
         console.log('Score verification action successful:', result.message)
         alert(`Score ${actionType} successful!`)
-        // Reload match data and submissions
-        setTimeout(() => {
-          loadMatch()
-          loadScoreSubmissions()
-        }, 500)
+        // Reload score submissions (they handle state updates via real-time)
+        loadScoreSubmissions()
       } else {
         console.error('Failed to verify score:', result.error)
         alert('Failed to verify score: ' + result.error)
@@ -388,6 +486,8 @@ export default function MatchPage() {
     } catch (error) {
       console.error('Failed to verify score:', error)
       alert('Failed to verify score. Please try again.')
+    } finally {
+      setIsVerifying(false)
     }
   }
 
@@ -432,11 +532,8 @@ export default function MatchPage() {
         if (finalizeResult.success) {
           console.log('Score finalized successfully by tournament creator')
           alert('Match score finalized!')
-          // Reload match data
-          setTimeout(() => {
-            loadMatch()
-            loadScoreSubmissions()
-          }, 500)
+          // Reload score submissions (they handle state updates via real-time)
+          loadScoreSubmissions()
         } else {
           console.error('Failed to finalize score:', finalizeResult.error)
           alert('Failed to finalize score: ' + finalizeResult.error)
@@ -590,6 +687,47 @@ export default function MatchPage() {
     const maxWins = getMaxWins()
     if (scores.participant1 === maxWins) return match.participant1_id
     if (scores.participant2 === maxWins) return match.participant2_id
+    return null
+  }
+
+  // Best of X utilities
+  const isSeriesFormat = () => {
+    return match?.match_format === 'bo3' || match?.match_format === 'bo5'
+  }
+
+  const getSeriesScore = () => {
+    if (!match?.score || !isSeriesFormat()) {
+      return { participant1_wins: 0, participant2_wins: 0, currentGame: 1, seriesComplete: false }
+    }
+
+    const scoreData = match.score
+    if (scoreData.format && scoreData.games && scoreData.overall) {
+      // New format
+      return {
+        participant1_wins: scoreData.overall.participant1_wins || 0,
+        participant2_wins: scoreData.overall.participant2_wins || 0,
+        currentGame: (scoreData.games?.filter(g => g.status === 'completed')?.length || 0) + 1,
+        seriesComplete: scoreData.overall.status === 'completed',
+        games: scoreData.games || []
+      }
+    } else {
+      // Legacy format - convert to new format
+      return {
+        participant1_wins: match.participant1_score || 0,
+        participant2_wins: match.participant2_score || 0,
+        currentGame: 1,
+        seriesComplete: match.status === 'completed',
+        games: []
+      }
+    }
+  }
+
+  const getSeriesWinner = () => {
+    const seriesScore = getSeriesScore()
+    const maxWins = getMaxWins()
+
+    if (seriesScore.participant1_wins >= maxWins) return match.participant1_id
+    if (seriesScore.participant2_wins >= maxWins) return match.participant2_id
     return null
   }
 
@@ -903,9 +1041,109 @@ export default function MatchPage() {
               </CardContent>
             </Card>
 
-            {/* Participant Score Submission */}
-            {match.status === 'in_progress' && hasParticipantAccess && !isTournamentCreator && 
-             !scoreSubmissions.some(sub => sub.submitted_by === currentParticipant?.id && sub.status === 'pending') && (
+            {/* Participant Score Submission - Best of X */}
+            {match.status === 'in_progress' && hasParticipantAccess && !isTournamentCreator && isSeriesFormat() &&
+             !scoreSubmissions.some(sub => sub.submitted_by === currentParticipant?.id && sub.status === 'pending') &&
+             !scoreSubmissions.some(sub => sub.status === 'pending') && !getSeriesScore().seriesComplete && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Submit Game {currentGameNumber} Score</CardTitle>
+                  <CardDescription>
+                    Submit the result for game {currentGameNumber} of {match.match_format.toUpperCase()} series
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {/* Series Progress */}
+                    <div className="bg-blue-50 p-4 rounded">
+                      <div className="text-sm font-medium text-blue-800 mb-2">Series Score</div>
+                      <div className="grid grid-cols-2 gap-4 text-center">
+                        <div>
+                          <div className="font-medium text-blue-700">{match.participant1?.participant_name}</div>
+                          <div className="text-2xl font-bold text-blue-900">{getSeriesScore().participant1_wins}</div>
+                        </div>
+                        <div>
+                          <div className="font-medium text-blue-700">{match.participant2?.participant_name}</div>
+                          <div className="text-2xl font-bold text-blue-900">{getSeriesScore().participant2_wins}</div>
+                        </div>
+                      </div>
+                      <div className="text-center text-sm text-blue-600 mt-2">
+                        First to {getMaxWins()} wins
+                      </div>
+                    </div>
+
+                    {/* Individual Games List */}
+                    {getSeriesScore().games.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="text-sm font-medium">Completed Games:</div>
+                        {getSeriesScore().games.filter(g => g.status === 'completed').map((game, index) => (
+                          <div key={game.game_number} className="flex items-center justify-between bg-gray-50 p-2 rounded text-sm">
+                            <span>Game {game.game_number}</span>
+                            <span>{game.participant1_score} - {game.participant2_score}</span>
+                            <span className="font-medium">
+                              {game.winner_id === match.participant1_id ? match.participant1?.participant_name : match.participant2?.participant_name} wins
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Current Game Score Input */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="text-center space-y-2">
+                        <h3 className="font-semibold">
+                          {match.participant1?.participant_name || 'TBD'}
+                        </h3>
+                        <input
+                          type="number"
+                          min="0"
+                          className="w-full text-center text-2xl font-bold border rounded p-2"
+                          value={gameScores.participant1}
+                          onChange={(e) => setGameScores(prev => ({
+                            ...prev,
+                            participant1: parseInt(e.target.value) || 0
+                          }))}
+                        />
+                      </div>
+                      <div className="text-center space-y-2">
+                        <h3 className="font-semibold">
+                          {match.participant2?.participant_name || 'TBD'}
+                        </h3>
+                        <input
+                          type="number"
+                          min="0"
+                          className="w-full text-center text-2xl font-bold border rounded p-2"
+                          value={gameScores.participant2}
+                          onChange={(e) => setGameScores(prev => ({
+                            ...prev,
+                            participant2: parseInt(e.target.value) || 0
+                          }))}
+                        />
+                      </div>
+                    </div>
+
+                    <Button
+                      className="w-full"
+                      onClick={handleSubmitGame}
+                      disabled={isSubmittingScore || (gameScores.participant1 === gameScores.participant2)}
+                    >
+                      {isSubmittingScore ? 'Submitting...' : `Submit Game ${currentGameNumber} Score`}
+                    </Button>
+
+                    {gameScores.participant1 === gameScores.participant2 && (
+                      <div className="text-sm text-orange-600 text-center">
+                        One player must win (scores cannot be tied)
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Participant Score Submission - Regular Match */}
+            {match.status === 'in_progress' && hasParticipantAccess && !isTournamentCreator && !isSeriesFormat() &&
+             !scoreSubmissions.some(sub => sub.submitted_by === currentParticipant?.id && sub.status === 'pending') &&
+             !scoreSubmissions.some(sub => sub.status === 'pending') && (
               <Card>
                 <CardHeader>
                   <CardTitle>Submit Match Score</CardTitle>
@@ -947,7 +1185,7 @@ export default function MatchPage() {
                         />
                       </div>
                     </div>
-                    
+
                     <div className="space-y-2">
                       <label className="text-sm font-medium">Notes (optional)</label>
                       <textarea
@@ -958,9 +1196,9 @@ export default function MatchPage() {
                         onChange={(e) => setSubmissionNotes(e.target.value)}
                       />
                     </div>
-                    
-                    <Button 
-                      className="w-full" 
+
+                    <Button
+                      className="w-full"
                       onClick={handleSubmitScore}
                       disabled={isSubmittingScore}
                     >
@@ -987,6 +1225,80 @@ export default function MatchPage() {
                       ⏳ Awaiting Verification
                     </Badge>
                   </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Score Needs Verification - for the other participant */}
+            {match.status === 'in_progress' && hasParticipantAccess && !isTournamentCreator &&
+             !scoreSubmissions.some(sub => sub.submitted_by === currentParticipant?.id && sub.status === 'pending') &&
+             scoreSubmissions.some(sub => sub.status === 'pending') && (
+              <Card className="border-blue-200">
+                <CardHeader>
+                  <CardTitle className="text-blue-800">Score Submitted for Verification</CardTitle>
+                  <CardDescription>
+                    {(() => {
+                      const pendingSubmission = scoreSubmissions.find(sub => sub.status === 'pending')
+                      const submitterName = pendingSubmission?.submitted_by_participant?.participant_name
+                      return `${submitterName} has submitted a score. Please verify or dispute it.`
+                    })()}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {(() => {
+                    const pendingSubmission = scoreSubmissions.find(sub => sub.status === 'pending')
+                    if (!pendingSubmission) return null
+
+                    return (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4 text-center p-4 bg-blue-50 rounded">
+                          <div>
+                            <div className="font-medium text-blue-800">{match.participant1?.participant_name}</div>
+                            <div className="text-3xl font-bold text-blue-900">{pendingSubmission.participant1_score}</div>
+                          </div>
+                          <div>
+                            <div className="font-medium text-blue-800">{match.participant2?.participant_name}</div>
+                            <div className="text-3xl font-bold text-blue-900">{pendingSubmission.participant2_score}</div>
+                          </div>
+                        </div>
+
+                        {pendingSubmission.notes && (
+                          <div className="text-sm bg-blue-100 p-3 rounded border-l-4 border-blue-400">
+                            <strong>Notes:</strong> {pendingSubmission.notes}
+                          </div>
+                        )}
+
+                        <div className="flex space-x-3">
+                          <Button
+                            onClick={() => handleVerifyScore(pendingSubmission.id, 'accept')}
+                            className="bg-green-600 hover:bg-green-700 flex-1"
+                            disabled={isVerifying}
+                          >
+                            {isVerifying ? (
+                              <>
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                Accepting...
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle className="h-4 w-4 mr-2" />
+                                Accept Score
+                              </>
+                            )}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() => setShowCounterProposeModal(pendingSubmission)}
+                            className="border-orange-200 text-orange-600 hover:bg-orange-50 flex-1"
+                            disabled={isVerifying}
+                          >
+                            <X className="h-4 w-4 mr-2" />
+                            Dispute & Counter-Propose
+                          </Button>
+                        </div>
+                      </div>
+                    )
+                  })()}
                 </CardContent>
               </Card>
             )}
@@ -1200,8 +1512,22 @@ export default function MatchPage() {
               </Card>
             )}
 
-            {/* Current Phase */}
-            {currentPhase && (
+            {/* League of Legends Draft System */}
+            {tournament?.game === 'League of Legends' && (currentPhase || phases.length > 0) && (
+              <LeagueOfLegendsDraft
+                match={match}
+                currentPhase={currentPhase}
+                selections={selections}
+                timeRemaining={timeRemaining}
+                onMakeSelection={handleMakeSelection}
+                canMakeSelection={canMakeSelection()}
+                currentParticipant={currentParticipant}
+                isSpectator={isSpectator}
+              />
+            )}
+
+            {/* Generic Phase Interface for Other Games */}
+            {tournament?.game !== 'League of Legends' && currentPhase && (
               <Card>
                 <CardHeader>
                   <div className="flex items-center justify-between">
@@ -1213,12 +1539,12 @@ export default function MatchPage() {
                         </Badge>
                       </CardTitle>
                       <CardDescription>
-                        {isMyTurn() && canMakeSelection() ? 'Your turn to make a selection' : 
+                        {isMyTurn() && canMakeSelection() ? 'Your turn to make a selection' :
                          currentPhase.turn_based ? `Waiting for ${currentPhase.current_turn_participant?.participant_name || 'participant'}` :
                          'Make your selection'}
                       </CardDescription>
                     </div>
-                    
+
                     {timeRemaining > 0 && (
                       <div className="text-right">
                         <div className="flex items-center space-x-2 text-lg font-mono">
@@ -1227,8 +1553,8 @@ export default function MatchPage() {
                             {formatTime(timeRemaining)}
                           </span>
                         </div>
-                        <Progress 
-                          value={(timeRemaining / (currentPhase.time_limit_seconds || 30)) * 100} 
+                        <Progress
+                          value={(timeRemaining / (currentPhase.time_limit_seconds || 30)) * 100}
                           className="w-32 mt-1"
                         />
                       </div>
@@ -1237,18 +1563,18 @@ export default function MatchPage() {
                 </CardHeader>
                 <CardContent>
                   {/* Selection Interface */}
-                  <PhaseSelectionInterface 
+                  <PhaseSelectionInterface
                     phase={currentPhase}
                     canSelect={canMakeSelection()}
                     onSelect={handleMakeSelection}
                     selections={selections[currentPhase.id] || []}
                     gameType={tournament?.game}
                   />
-                  
+
                   {currentPhase.is_optional && hasParticipantAccess && (
                     <div className="mt-4 pt-4 border-t">
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         onClick={handleSkipPhase}
                         className="w-full"
                       >

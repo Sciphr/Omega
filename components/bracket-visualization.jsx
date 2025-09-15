@@ -19,7 +19,295 @@ import {
 } from "@/components/ui/dialog";
 import { Trophy, Clock, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 
+// Best of X utility functions
+const isSeriesFormat = (matchFormat) => {
+  return matchFormat === 'bo3' || matchFormat === 'bo5'
+}
+
+const getSeriesScoreDisplay = (match) => {
+  if (!isSeriesFormat(match.match_format)) {
+    return {
+      participant1Score: (match.participant1_score !== null && match.participant1_score !== undefined) ? String(match.participant1_score) : null,
+      participant2Score: (match.participant2_score !== null && match.participant2_score !== undefined) ? String(match.participant2_score) : null
+    }
+  }
+
+  // Handle Best of X series
+  if (match.score && match.score.format && match.score.overall) {
+    const overall = match.score.overall
+    return {
+      participant1Score: String(overall.participant1_wins || 0),
+      participant2Score: String(overall.participant2_wins || 0),
+      isSeriesInProgress: overall.status === 'in_progress',
+      seriesStatus: overall.status
+    }
+  }
+
+  // Legacy format - use participant scores as series wins
+  return {
+    participant1Score: (match.participant1_score !== null && match.participant1_score !== undefined) ? String(match.participant1_score) : null,
+    participant2Score: (match.participant2_score !== null && match.participant2_score !== undefined) ? String(match.participant2_score) : null,
+    isSeriesInProgress: match.status === 'in_progress' && (match.participant1_score > 0 || match.participant2_score > 0),
+    seriesStatus: match.status
+  }
+}
+
 // CSS to override any library constraints
+
+// Transform generated double elimination bracket structure (for preview)
+function transformGeneratedDoubleElimination(bracket) {
+
+  const winnerMatches = [];
+  const loserMatches = [];
+
+  // Process winner bracket
+  if (bracket.winnerBracket && bracket.winnerBracket.rounds) {
+    const rounds = bracket.winnerBracket.rounds;
+
+    for (let roundIndex = 0; roundIndex < rounds.length; roundIndex++) {
+      const round = rounds[roundIndex];
+
+      round.matches.forEach((match, matchIndex) => {
+        // Calculate next match ID for winner bracket
+        let nextMatchId = null;
+        if (roundIndex < rounds.length - 1) {
+          // Not the final round, advance to next winner bracket round
+          const nextRound = rounds[roundIndex + 1];
+          const nextMatchIndex = Math.floor(matchIndex / 2);
+          nextMatchId = `winner-${nextRound.roundNumber}-${nextMatchIndex + 1}`;
+        } else {
+          // Winner bracket final goes to grand finals
+          nextMatchId = "grand-final";
+        }
+
+        // Calculate next looser match ID - this is crucial for proper bracket flow
+        let nextLooserMatchId = null;
+        if (bracket.loserBracket && bracket.loserBracket.length > 0) {
+          // First round losers go to first round of loser bracket
+          // Later round losers get inserted into loser bracket at appropriate points
+          if (roundIndex === 0) {
+            // First round: losers go to loser bracket round 1
+            // But they get paired differently in loser bracket
+            nextLooserMatchId = `loser-1-1`;
+          } else {
+            // Later rounds: losers go to later loser bracket rounds
+            // This creates the alternating pattern
+            const loserRoundNumber = roundIndex + 1;
+            nextLooserMatchId = `loser-${loserRoundNumber}-1`;
+          }
+        }
+
+        const matchData = {
+          id: `winner-${round.roundNumber}-${match.matchNumber}`,
+          name: `WB ${match.matchNumber}`,
+          nextMatchId,
+          nextLooserMatchId,
+          tournamentRoundText: `Winner Round ${round.roundNumber}`,
+          startTime: null,
+          state: "SCHEDULED",
+          participants: [
+            {
+              id: match.participant1?.id || `p1-winner-${round.roundNumber}-${match.matchNumber}`,
+              resultText: null,
+              isWinner: false,
+              status: match.participant1 ? "PLAYED" : "NO_SHOW",
+              name: match.participant1?.participantName || match.participant1?.participant_name || match.participant1?.name || "TBD",
+            },
+            {
+              id: match.participant2?.id || `p2-winner-${round.roundNumber}-${match.matchNumber}`,
+              resultText: null,
+              isWinner: false,
+              status: match.participant2 ? "PLAYED" : "NO_SHOW",
+              name: match.participant2?.participantName || match.participant2?.participant_name || match.participant2?.name || "TBD",
+            }
+          ],
+          // Store original match data for click handling
+          originalMatch: match
+        };
+
+        winnerMatches.push({ ...matchData, round: round.roundNumber });
+      });
+    }
+  }
+
+  // Process loser bracket
+  if (bracket.loserBracket && Array.isArray(bracket.loserBracket)) {
+    for (let roundIndex = 0; roundIndex < bracket.loserBracket.length; roundIndex++) {
+      const round = bracket.loserBracket[roundIndex];
+
+      round.matches.forEach((match, matchIndex) => {
+        // Calculate next match ID for loser bracket
+        let nextMatchId = null;
+        if (roundIndex < bracket.loserBracket.length - 1) {
+          // Not the final loser round, advance to next loser bracket round
+          const nextRound = bracket.loserBracket[roundIndex + 1];
+          const nextMatchIndex = Math.floor(matchIndex / 2);
+          nextMatchId = `loser-${nextRound.roundNumber}-${Math.max(nextMatchIndex, 0) + 1}`;
+        } else {
+          // Final loser round goes to grand finals
+          nextMatchId = "grand-final";
+        }
+
+        const matchData = {
+          id: `loser-${round.roundNumber}-${match.matchNumber}`,
+          name: `LB ${match.matchNumber}`,
+          nextMatchId,
+          nextLooserMatchId: null, // Loser bracket has no losers bracket
+          tournamentRoundText: `Loser Round ${round.roundNumber}`,
+          startTime: null,
+          state: "SCHEDULED",
+          participants: [
+            {
+              id: match.participant1?.id || `p1-loser-${round.roundNumber}-${match.matchNumber}`,
+              resultText: null,
+              isWinner: false,
+              status: "NO_SHOW",
+              name: "TBD",
+            },
+            {
+              id: match.participant2?.id || `p2-loser-${round.roundNumber}-${match.matchNumber}`,
+              resultText: null,
+              isWinner: false,
+              status: "NO_SHOW",
+              name: "TBD",
+            }
+          ],
+          // Store original match data for click handling
+          originalMatch: match
+        };
+
+        loserMatches.push({ ...matchData, round: round.roundNumber });
+      });
+    }
+  }
+
+  // Process grand finals
+  let grandFinalMatch = null;
+  if (bracket.grandFinals) {
+    grandFinalMatch = {
+      id: "grand-final",
+      name: "Grand Final",
+      nextMatchId: null, // Grand finals is the final match
+      nextLooserMatchId: null,
+      tournamentRoundText: "Grand Finals",
+      startTime: null,
+      state: "SCHEDULED",
+      participants: [
+        {
+          id: "p1-grand-final",
+          resultText: null,
+          isWinner: false,
+          status: "NO_SHOW",
+          name: "Winner Bracket Champion",
+        },
+        {
+          id: "p2-grand-final",
+          resultText: null,
+          isWinner: false,
+          status: "NO_SHOW",
+          name: "Loser Bracket Champion",
+        }
+      ],
+      // Store original match data for click handling
+      originalMatch: bracket.grandFinals
+    };
+  }
+
+  // Add grand finals to the end of upper bracket (as per library examples)
+  if (grandFinalMatch) {
+    winnerMatches.push(grandFinalMatch);
+  }
+
+  const result = {
+    upper: winnerMatches,
+    lower: loserMatches
+  };
+
+  return result;
+}
+
+// Transform double elimination matches into the format expected by g-loot package
+function transformDoubleEliminationMatches(bracket, tournament) {
+  // Handle generated double elimination bracket structure (preview)
+  if (bracket.winnerBracket && bracket.loserBracket) {
+    return transformGeneratedDoubleElimination(bracket);
+  }
+
+  // Handle database matches structure (in-progress/completed tournaments)
+  if (!bracket || !bracket.rounds || !Array.isArray(bracket.rounds)) {
+    return [];
+  }
+
+  // Separate matches by bracket type
+  const winnerMatches = [];
+  const loserMatches = [];
+  let grandFinalMatch = null;
+
+  try {
+    // Group all matches by bracket type
+    bracket.rounds.forEach((round, roundIndex) => {
+      if (!round.matches || !Array.isArray(round.matches)) {
+        console.warn('Round has no matches array:', round);
+        return;
+      }
+
+      console.log(`Round ${roundIndex + 1} matches:`, round.matches);
+
+      round.matches.forEach((match, matchIndex) => {
+      const matchData = {
+        id: match.id || `${round.roundNumber}-${match.matchNumber}`,
+        name: `${match.matchNumber || 1}`,
+        nextMatchId: null,
+        nextLooserMatchId: null,
+        participants: [
+          {
+            id: match.participant1?.id || `p1-${match.id}`,
+            resultText: getSeriesScoreDisplay(match).participant1Score || null,
+            isWinner: match.winner === match.participant1?.id,
+            status: match.participant1 ? "PLAYED" : "NO_SHOW",
+            name: match.participant1?.participantName || match.participant1?.participant_name || match.participant1?.name || "TBD",
+          },
+          {
+            id: match.participant2?.id || `p2-${match.id}`,
+            resultText: getSeriesScoreDisplay(match).participant2Score || null,
+            isWinner: match.winner === match.participant2?.id,
+            status: match.participant2 ? "PLAYED" : "NO_SHOW",
+            name: match.participant2?.participantName || match.participant2?.participant_name || match.participant2?.name || "TBD",
+          }
+        ],
+        state: match.status === "completed" ? "DONE" :
+               (match.participant1 && match.participant2) ? "SCHEDULED" : "NO_PARTY"
+      };
+
+      // Sort into appropriate bracket based on bracket_type
+      if (match.bracket_type === 'winner') {
+        winnerMatches.push({ ...matchData, round: round.roundNumber });
+      } else if (match.bracket_type === 'loser') {
+        loserMatches.push({ ...matchData, round: round.roundNumber });
+      } else if (match.bracket_type === 'grand_final') {
+        grandFinalMatch = matchData;
+      }
+    });
+  });
+
+    // Add grand finals to the end of upper bracket (as per library examples)
+    if (grandFinalMatch) {
+      winnerMatches.push(grandFinalMatch);
+    }
+
+    const result = {
+      upper: winnerMatches,
+      lower: loserMatches
+    };
+
+    return result;
+
+  } catch (error) {
+    console.error('Error transforming double elimination matches:', error);
+    return [];
+  }
+}
+
 const bracketOverrideStyles = `
   .bracket .bracket-match {
     overflow: visible !important;
@@ -189,8 +477,21 @@ export function BracketVisualization({
 
   // Transform our bracket data to the format expected by g-loot package
   const transformedMatches = useMemo(() => {
-    if (!bracket || !bracket.rounds) return [];
+    if (!bracket) {
+      return [];
+    }
 
+    // For double elimination, we need to create separate bracket structures
+    if (tournament?.format === "double_elimination") {
+      return transformDoubleEliminationMatches(bracket, tournament);
+    }
+
+    // For single elimination, check if rounds exist
+    if (!bracket.rounds) {
+      return [];
+    }
+
+    // Single elimination transformation
     const matches = [];
     const matchMap = new Map();
 
@@ -206,28 +507,24 @@ export function BracketVisualization({
           participants: [
             {
               id: match.participant1?.id || `p1-${matchId}`,
-              resultText:
-                match.participant1 && (match.participant1_score !== null || match.score)
-                  ? String(match.participant1_score ?? match.score?.[match.participant1.id] ?? "")
-                  : null,
+              resultText: getSeriesScoreDisplay(match).participant1Score || null,
               isWinner: match.winner === match.participant1?.id,
               status: match.participant1 ? "PLAYED" : "NO_SHOW",
               name:
                 match.participant1?.participantName ||
                 match.participant1?.participant_name ||
+                match.participant1?.name ||
                 "TBD",
             },
             {
               id: match.participant2?.id || `p2-${matchId}`,
-              resultText:
-                match.participant2 && (match.participant2_score !== null || match.score)
-                  ? String(match.participant2_score ?? match.score?.[match.participant2.id] ?? "")
-                  : null,
+              resultText: getSeriesScoreDisplay(match).participant2Score || null,
               isWinner: match.winner === match.participant2?.id,
               status: match.participant2 ? "PLAYED" : "NO_SHOW",
               name:
                 match.participant2?.participantName ||
                 match.participant2?.participant_name ||
+                match.participant2?.name ||
                 "TBD",
             },
           ],
@@ -289,21 +586,47 @@ export function BracketVisualization({
     setZoomLevel(0.8);
   };
 
-  if (!bracket || !bracket.rounds || transformedMatches.length === 0) {
+
+  // Check for valid bracket data based on tournament format
+  const hasValidBracketData = tournament?.format === "double_elimination"
+    ? (bracket && (bracket.winnerBracket || bracket.loserBracket))
+    : (bracket && bracket.rounds);
+
+  if (!hasValidBracketData) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
           <Trophy className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
           <p className="text-muted-foreground">No bracket data available</p>
+          <p className="text-xs text-muted-foreground mt-2">
+            Debug: bracket={bracket ? 'exists' : 'null'},
+            rounds={bracket?.rounds ? 'exists' : 'null'},
+            format={tournament?.format},
+            winnerBracket={bracket?.winnerBracket ? 'exists' : 'null'}
+          </p>
         </div>
       </div>
     );
   }
 
-  const BracketComponent =
-    tournament?.format === "double_elimination"
-      ? DoubleEliminationBracket
-      : SingleEliminationBracket;
+  if (!transformedMatches) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <Trophy className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+          <p className="text-muted-foreground">Error transforming match data</p>
+          <p className="text-xs text-muted-foreground mt-2">
+            transformedMatches is {typeof transformedMatches}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Determine bracket component based on actual tournament format
+  const BracketComponent = tournament?.format === "double_elimination"
+    ? DoubleEliminationBracket
+    : SingleEliminationBracket;
 
   return (
     <div className="w-full h-full">
@@ -366,30 +689,32 @@ export function BracketVisualization({
                 padding: "24px",
               }}
             >
-              <BracketComponent
-                matches={transformedMatches}
-                matchComponent={CustomMatchComponent}
-                theme={customTheme}
-                onMatchClick={handleMatchClick}
-                onPartyClick={(party, partyWon) => {
-                  console.log("Party clicked:", party, "Won:", partyWon);
-                }}
-                options={{
-                  style: {
-                    roundHeader: {
-                      backgroundColor: "#3b82f6",
-                      fontColor: "#ffffff",
-                      fontSize: 14,
+              {tournament?.format === "double_elimination" ? (
+                <DoubleEliminationBracket
+                  matches={transformedMatches}
+                  matchComponent={CustomMatchComponent}
+                  theme={customTheme}
+                  onMatchClick={handleMatchClick}
+                />
+              ) : (
+                <SingleEliminationBracket
+                  matches={transformedMatches}
+                  matchComponent={CustomMatchComponent}
+                  theme={customTheme}
+                  onMatchClick={handleMatchClick}
+                  onPartyClick={(party, partyWon) => {
+                    console.log("Party clicked:", party, "Won:", partyWon);
+                  }}
+                  options={{
+                    style: {
+                      roundHeader: {
+                        backgroundColor: "#3b82f6",
+                        color: "white",
+                      },
                     },
-                    connectorColor: "#cbd5e1",
-                    connectorColorHighlight: "#3b82f6",
-                  },
-                  width: 250,
-                  boxHeight: 150,
-                  spacingY: 40,
-                  matchMaxWidth: 250
-                }}
-              />
+                  }}
+                />
+              )}
             </div>
           </div>
         </CardContent>
@@ -424,13 +749,9 @@ export function BracketVisualization({
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold text-center">
-                      {selectedMatch.participant1 && (selectedMatch.participant1_score !== null || selectedMatch.score)
-                        ? selectedMatch.participant1_score ?? selectedMatch.score?.[selectedMatch.participant1.id] ??
-                          "-"
-                        : "-"}
+                      {getSeriesScoreDisplay(selectedMatch).participant1Score ?? "-"}
                     </div>
-                    {selectedMatch.winner ===
-                      selectedMatch.participant1?.id && (
+                    {selectedMatch.winner && selectedMatch.winner === selectedMatch.participant1?.id && (
                       <Badge className="w-full justify-center mt-2">
                         Winner
                       </Badge>
@@ -448,13 +769,9 @@ export function BracketVisualization({
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold text-center">
-                      {selectedMatch.participant2 && (selectedMatch.participant2_score !== null || selectedMatch.score)
-                        ? selectedMatch.participant2_score ?? selectedMatch.score?.[selectedMatch.participant2.id] ??
-                          "-"
-                        : "-"}
+                      {getSeriesScoreDisplay(selectedMatch).participant2Score ?? "-"}
                     </div>
-                    {selectedMatch.winner ===
-                      selectedMatch.participant2?.id && (
+                    {selectedMatch.winner && selectedMatch.winner === selectedMatch.participant2?.id && (
                       <Badge className="w-full justify-center mt-2">
                         Winner
                       </Badge>
@@ -485,7 +802,7 @@ export function BracketVisualization({
               </div>
 
               <div className="flex gap-2">
-                {selectedMatch?.id ? (
+                {selectedMatch?.id && tournament?.status === 'in_progress' ? (
                   <Link href={`/match/${selectedMatch.id}`} className="flex-1">
                     <Button className="w-full">
                       <Clock className="h-4 w-4 mr-2" />
@@ -493,8 +810,8 @@ export function BracketVisualization({
                     </Button>
                   </Link>
                 ) : (
-                  <Button 
-                    className="w-full" 
+                  <Button
+                    className="w-full"
                     disabled
                     title="Match not available yet - tournament must be started first"
                   >
@@ -504,9 +821,40 @@ export function BracketVisualization({
                 )}
               </div>
 
+              {/* Best of X Games Details */}
+              {isSeriesFormat(selectedMatch.match_format) && selectedMatch.score && selectedMatch.score.games && (
+                <div className="pt-4 border-t">
+                  <h4 className="font-medium mb-3 flex items-center">
+                    <Trophy className="h-4 w-4 mr-2" />
+                    Individual Games ({selectedMatch.match_format.toUpperCase()})
+                  </h4>
+                  <div className="space-y-2">
+                    {selectedMatch.score.games.filter(g => g.status === 'completed').map((game) => (
+                      <div key={game.game_number} className="flex items-center justify-between bg-gray-50 p-3 rounded">
+                        <span className="font-medium">Game {game.game_number}</span>
+                        <div className="flex items-center space-x-4">
+                          <span className="text-sm">{game.participant1_score} - {game.participant2_score}</span>
+                          <Badge variant="outline" className="text-xs">
+                            {game.winner_id === selectedMatch.participant1_id ?
+                              selectedMatch.participant1?.participant_name || selectedMatch.participant1?.participantName :
+                              selectedMatch.participant2?.participant_name || selectedMatch.participant2?.participantName
+                            } wins
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {getSeriesScoreDisplay(selectedMatch).isSeriesInProgress && (
+                    <div className="mt-2 text-center text-sm text-blue-600">
+                      Series in progress - First to {selectedMatch.match_format === 'bo3' ? '2' : '3'} wins
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="pt-4 border-t">
-                <Button 
-                  variant="secondary" 
+                <Button
+                  variant="secondary"
                   className="w-full"
                   onClick={handleDialogClose}
                 >

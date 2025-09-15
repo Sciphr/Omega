@@ -16,7 +16,7 @@ import { Progress } from '@/components/ui/progress'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { createTournamentSchema } from '@/lib/validations'
-import { TOURNAMENT_FORMAT, PARTICIPATION_TYPE, SEEDING_TYPE, MATCH_FORMAT, GAME_TEMPLATES } from '@/lib/types'
+import { TOURNAMENT_FORMAT, TOURNAMENT_TYPE, PARTICIPATION_TYPE, SEEDING_TYPE, MATCH_FORMAT, GAME_TEMPLATES, DRAFT_TYPES, LEAGUE_OF_LEGENDS_CONFIG } from '@/lib/types'
 import { calculateTournamentDuration } from '@/lib/bracket-utils'
 import { ChevronLeft, ChevronRight, Trophy, Users, Settings, Gamepad2, Clock, Shield } from 'lucide-react'
 
@@ -30,8 +30,79 @@ const STEPS = [
 export function TournamentWizard({ onComplete }) {
   const [currentStep, setCurrentStep] = useState(0)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [gameProfiles, setGameProfiles] = useState([])
+  const [selectedGameProfile, setSelectedGameProfile] = useState(null)
+  const [loadingGameProfiles, setLoadingGameProfiles] = useState(true)
   const router = useRouter()
   const { user, session, loading, initialized } = useAuthStore()
+
+  const form = useForm({
+    resolver: zodResolver(createTournamentSchema),
+    defaultValues: {
+      name: '',
+      description: '',
+      game: '',
+      format: TOURNAMENT_FORMAT.SINGLE_ELIMINATION,
+      tournamentType: TOURNAMENT_TYPE.INDIVIDUAL,
+      teamSize: 1,
+      maxParticipants: 16,
+
+      // Game profile specific settings
+      gameProfileId: '',
+      selectedMap: '',
+      draftType: '',
+      customPhases: [],
+
+      // League of Legends specific settings
+      leagueSettings: {
+        map: 'summoners_rift',
+        draftType: 'tournament_draft',
+        enableBans: true,
+        banPhases: [{ phase: 1, bansPerTeam: 3 }],
+        pickPhases: [{ phase: 1, picksPerTeam: 5 }],
+        timeLimit: 30
+      },
+      participationType: PARTICIPATION_TYPE.ANYONE,
+      seedingType: SEEDING_TYPE.RANDOM,
+      password: '',
+      isPublic: true,
+      creatorName: '',
+      settings: {
+        matchFormat: MATCH_FORMAT.BO1,
+        allowForfeits: true,
+        autoAdvance: false,
+        scoreConfirmationRequired: true,
+        checkInRequired: false,
+        checkInDeadline: null,
+        registrationDeadline: null,
+        startTime: null,
+        rules: '',
+        prizeInfo: '',
+        enableDraftBan: false,
+        draftBanSettings: {
+          enableBans: true,
+          enableDrafts: true,
+          bansPerSide: 3,
+          draftsPerSide: 5,
+          banTimer: 30,
+          draftTimer: 30,
+          alternatingOrder: true,
+          customPhases: []
+        }
+      }
+    }
+  })
+
+  const watchedValues = form.watch()
+
+  // Computed values
+  const currentGame = selectedGameProfile
+  const duration = calculateTournamentDuration(
+    watchedValues.maxParticipants,
+    watchedValues.format,
+    watchedValues.settings?.matchFormat
+  )
+
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -50,6 +121,29 @@ export function TournamentWizard({ onComplete }) {
 
     return () => clearTimeout(timeout)
   }, [loading])
+
+  // Load game profiles
+  useEffect(() => {
+    loadGameProfiles()
+  }, [])
+
+  const loadGameProfiles = async () => {
+    try {
+      setLoadingGameProfiles(true)
+      const response = await fetch('/api/game-profiles')
+      const result = await response.json()
+
+      if (result.success) {
+        setGameProfiles(result.profiles)
+      } else {
+        console.error('Failed to load game profiles:', result.error)
+      }
+    } catch (error) {
+      console.error('Error loading game profiles:', error)
+    } finally {
+      setLoadingGameProfiles(false)
+    }
+  }
 
   // Show loading while checking auth (with timeout)
   if (loading && !initialized) {
@@ -87,36 +181,7 @@ export function TournamentWizard({ onComplete }) {
       </div>
     )
   }
-  
-  const form = useForm({
-    resolver: zodResolver(createTournamentSchema),
-    defaultValues: {
-      name: '',
-      description: '',
-      game: '',
-      format: TOURNAMENT_FORMAT.SINGLE_ELIMINATION,
-      maxParticipants: 16,
-      participationType: PARTICIPATION_TYPE.ANYONE,
-      seedingType: SEEDING_TYPE.RANDOM,
-      password: '',
-      isPublic: true,
-      creatorName: '',
-      settings: {
-        matchFormat: MATCH_FORMAT.BO1,
-        allowForfeits: true,
-        autoAdvance: false,
-        scoreConfirmationRequired: true,
-        checkInRequired: false,
-        rules: '',
-        prizeInfo: '',
-      }
-    }
-  })
-  
-  const watchedValues = form.watch()
-  const currentGame = Object.values(GAME_TEMPLATES).find(g => g.id === watchedValues.game)
-  const duration = calculateTournamentDuration(watchedValues.maxParticipants, watchedValues.format)
-  
+
   const nextStep = async (e) => {
     e?.preventDefault()
     e?.stopPropagation()
@@ -137,35 +202,49 @@ export function TournamentWizard({ onComplete }) {
   
   const onSubmit = async (data) => {
     console.log('onSubmit called on step:', currentStep, 'of', STEPS.length - 1)
-    
+
     // Only allow submission on the final step
     if (currentStep !== STEPS.length - 1) {
       console.log('Preventing submission - not on final step')
       return
     }
-    
+
     setIsSubmitting(true)
     try {
-      console.log('Creating tournament:', data)
-      
+      console.log('Creating tournament with data:', data)
+      console.log('Selected game profile:', selectedGameProfile)
+      console.log('Session info:', session)
+
       if (!session?.access_token) {
+        console.error('No access token available. Session:', session)
         throw new Error('No access token available')
       }
-      
+
+      // Transform the data to match API expectations
+      const tournamentPayload = {
+        ...data,
+        game: selectedGameProfile?.game || data.game,
+        gameProfileId: selectedGameProfile?.id || data.gameProfileId
+      }
+
+      console.log('Sending tournament payload:', tournamentPayload)
+
       const response = await fetch('/api/tournaments', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(data),
+        body: JSON.stringify(tournamentPayload),
       })
 
+      console.log('Response status:', response.status)
       const result = await response.json()
+      console.log('Response data:', result)
 
       if (result.success) {
         console.log('Tournament created successfully:', result.tournament)
-        
+
         if (onComplete) {
           onComplete(result.tournament)
         } else {
@@ -177,7 +256,7 @@ export function TournamentWizard({ onComplete }) {
       }
     } catch (error) {
       console.error('Failed to create tournament:', error)
-      form.setError('root', { message: 'An unexpected error occurred' })
+      form.setError('root', { message: 'An unexpected error occurred: ' + error.message })
     } finally {
       setIsSubmitting(false)
     }
@@ -305,16 +384,41 @@ export function TournamentWizard({ onComplete }) {
                 <div className="grid gap-6">
                   <div>
                     <Label>Game *</Label>
-                    <Select onValueChange={(value) => form.setValue('game', value)}>
+                    <Select onValueChange={(value) => {
+                      const gameProfile = gameProfiles.find(p => p.game_key === value)
+                      form.setValue('game', value)
+                      form.setValue('gameProfileId', gameProfile?.id || '')
+                      setSelectedGameProfile(gameProfile)
+
+                      // Set defaults based on game profile
+                      if (gameProfile) {
+                        form.setValue('teamSize', gameProfile.default_team_size)
+                        if (gameProfile.game_key === 'league_of_legends') {
+                          form.setValue('leagueSettings.map', 'summoners_rift')
+                          form.setValue('leagueSettings.draftType', 'tournament_draft')
+                        }
+                      }
+                    }}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select a game" />
                       </SelectTrigger>
                       <SelectContent>
-                        {Object.values(GAME_TEMPLATES).map((game) => (
-                          <SelectItem key={game.id} value={game.id}>
-                            <span>{game.name}</span>
-                          </SelectItem>
-                        ))}
+                        {loadingGameProfiles ? (
+                          <SelectItem disabled value="loading">Loading games...</SelectItem>
+                        ) : gameProfiles.length === 0 ? (
+                          <SelectItem disabled value="no-games">No games available</SelectItem>
+                        ) : (
+                          gameProfiles.map((profile) => (
+                            <SelectItem key={profile.id} value={profile.game_key}>
+                              <div>
+                                <div className="font-medium">{profile.game}</div>
+                                {profile.description && (
+                                  <div className="text-xs text-muted-foreground">{profile.description}</div>
+                                )}
+                              </div>
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                     {form.formState.errors.game && (
@@ -322,12 +426,167 @@ export function TournamentWizard({ onComplete }) {
                     )}
                   </div>
                   
-                  {currentGame && (
+                  <div>
+                    <Label>Tournament Type *</Label>
+                    <Select
+                      value={watchedValues.tournamentType}
+                      onValueChange={(value) => {
+                        form.setValue('tournamentType', value)
+                        if (value === TOURNAMENT_TYPE.TEAM && selectedGameProfile) {
+                          form.setValue('teamSize', selectedGameProfile.default_team_size)
+                        }
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={TOURNAMENT_TYPE.INDIVIDUAL} className="p-0">
+                          <div className="p-3 w-full">
+                            <div className="font-medium text-foreground">Individual Tournament</div>
+                            <div className="text-xs text-gray-600 mt-1 leading-relaxed">Single players compete</div>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value={TOURNAMENT_TYPE.TEAM} className="p-0">
+                          <div className="p-3 w-full">
+                            <div className="font-medium text-foreground">Team Tournament</div>
+                            <div className="text-xs text-gray-600 mt-1 leading-relaxed">Teams compete against each other</div>
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {watchedValues.tournamentType === TOURNAMENT_TYPE.TEAM && (
+                    <div>
+                      <Label>Team Size *</Label>
+                      <Select
+                        value={String(watchedValues.teamSize)}
+                        onValueChange={(value) => form.setValue('teamSize', parseInt(value))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="2">2 players per team</SelectItem>
+                          <SelectItem value="3">3 players per team</SelectItem>
+                          <SelectItem value="4">4 players per team</SelectItem>
+                          <SelectItem value="5">5 players per team</SelectItem>
+                          <SelectItem value="6">6 players per team</SelectItem>
+                          <SelectItem value="8">8 players per team</SelectItem>
+                          <SelectItem value="10">10 players per team</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  {selectedGameProfile && (
                     <Card className="p-4 bg-muted">
-                      <h4 className="font-semibold mb-2">{currentGame.name} Settings</h4>
+                      <h4 className="font-semibold mb-2">{selectedGameProfile.game} Settings</h4>
                       <div className="text-sm text-muted-foreground space-y-1">
-                        <p>Team Size: {currentGame.teamSize === 1 ? 'Individual' : `${currentGame.teamSize} players`}</p>
-                        <p>Default Format: {currentGame.defaultFormat.toUpperCase()}</p>
+                        <p>Recommended Team Size: {selectedGameProfile.default_team_size === 1 ? 'Individual' : `${selectedGameProfile.default_team_size} players`}</p>
+                        <p>Supports: {[selectedGameProfile.supports_individual && 'Individual', selectedGameProfile.supports_team && 'Team'].filter(Boolean).join(', ')}</p>
+                        {watchedValues.tournamentType === TOURNAMENT_TYPE.TEAM && watchedValues.teamSize !== selectedGameProfile.default_team_size && (
+                          <p className="text-yellow-600">⚠️ Your team size differs from the game's recommended size</p>
+                        )}
+                      </div>
+                    </Card>
+                  )}
+
+                  {/* League of Legends Specific Settings */}
+                  {selectedGameProfile?.game_key === 'league_of_legends' && (
+                    <Card className="p-6 border-blue-200 bg-blue-50">
+                      <h4 className="font-semibold mb-4 text-blue-900 flex items-center">
+                        <Gamepad2 className="h-5 w-5 mr-2" />
+                        League of Legends Configuration
+                      </h4>
+
+                      <div className="grid gap-4">
+                        {/* Map Selection */}
+                        <div>
+                          <Label>Map *</Label>
+                          <Select
+                            value={watchedValues.leagueSettings?.map}
+                            onValueChange={(value) => form.setValue('leagueSettings.map', value)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="summoners_rift" className="p-0">
+                                <div className="p-3 w-full">
+                                  <div className="font-medium text-foreground">Summoner's Rift</div>
+                                  <div className="text-xs text-gray-600 mt-1 leading-relaxed">Classic 5v5 map</div>
+                                </div>
+                              </SelectItem>
+                              <SelectItem value="aram" className="p-0">
+                                <div className="p-3 w-full">
+                                  <div className="font-medium text-foreground">ARAM (Howling Abyss)</div>
+                                  <div className="text-xs text-gray-600 mt-1 leading-relaxed">All Random All Mid</div>
+                                </div>
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Draft Type */}
+                        <div>
+                          <Label>Draft Type *</Label>
+                          <Select
+                            value={watchedValues.leagueSettings?.draftType}
+                            onValueChange={(value) => form.setValue('leagueSettings.draftType', value)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="tournament_draft" className="p-0">
+                                <div className="p-3 w-full">
+                                  <div className="font-medium text-foreground">Tournament Draft</div>
+                                  <div className="text-xs text-gray-600 mt-1 leading-relaxed">Alternating pick/ban like pro play</div>
+                                </div>
+                              </SelectItem>
+                              <SelectItem value="fearless_draft" className="p-0">
+                                <div className="p-3 w-full">
+                                  <div className="font-medium text-foreground">Fearless Draft</div>
+                                  <div className="text-xs text-gray-600 mt-1 leading-relaxed">Champions can't be picked again in series</div>
+                                </div>
+                              </SelectItem>
+                              <SelectItem value="blind_pick" className="p-0">
+                                <div className="p-3 w-full">
+                                  <div className="font-medium text-foreground">Blind Pick</div>
+                                  <div className="text-xs text-gray-600 mt-1 leading-relaxed">All players pick simultaneously</div>
+                                </div>
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Draft Details */}
+                        {watchedValues.leagueSettings?.draftType === 'tournament_draft' && (
+                          <div className="bg-white p-4 rounded border">
+                            <h5 className="font-medium mb-2 text-blue-800">Tournament Draft Phases</h5>
+                            <div className="text-sm text-blue-700 space-y-1">
+                              <p>• Phase 1: Each team bans 3 champions (alternating)</p>
+                              <p>• Phase 2: Each team picks 1 champion (alternating)</p>
+                              <p>• Phase 3: Each team picks 2 champions (alternating)</p>
+                              <p>• Phase 4: Each team bans 2 champions (alternating)</p>
+                              <p>• Phase 5: Each team picks 2 champions (alternating)</p>
+                            </div>
+                          </div>
+                        )}
+
+                        {watchedValues.leagueSettings?.draftType === 'fearless_draft' && (
+                          <div className="bg-orange-50 p-4 rounded border border-orange-200">
+                            <h5 className="font-medium mb-2 text-orange-800">Fearless Draft Rules</h5>
+                            <div className="text-sm text-orange-700 space-y-1">
+                              <p>• Champions picked in one game cannot be picked again in the series</p>
+                              <p>• Each team bans 5 champions simultaneously</p>
+                              <p>• Each team picks 5 champions simultaneously</p>
+                              <p>• Best suited for Best of 3/5 series</p>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </Card>
                   )}
@@ -342,16 +601,16 @@ export function TournamentWizard({ onComplete }) {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={TOURNAMENT_FORMAT.SINGLE_ELIMINATION}>
-                          <div>
-                            <div className="font-medium">Single Elimination</div>
-                            <div className="text-xs text-muted-foreground">One loss = elimination</div>
+                        <SelectItem value={TOURNAMENT_FORMAT.SINGLE_ELIMINATION} className="p-0">
+                          <div className="p-3 w-full">
+                            <div className="font-medium text-foreground">Single Elimination</div>
+                            <div className="text-xs text-gray-600 mt-1 leading-relaxed">One loss = elimination</div>
                           </div>
                         </SelectItem>
-                        <SelectItem value={TOURNAMENT_FORMAT.DOUBLE_ELIMINATION}>
-                          <div>
-                            <div className="font-medium">Double Elimination</div>
-                            <div className="text-xs text-muted-foreground">Two losses = elimination</div>
+                        <SelectItem value={TOURNAMENT_FORMAT.DOUBLE_ELIMINATION} className="p-0">
+                          <div className="p-3 w-full">
+                            <div className="font-medium text-foreground">Double Elimination</div>
+                            <div className="text-xs text-gray-600 mt-1 leading-relaxed">Two losses = elimination</div>
                           </div>
                         </SelectItem>
                       </SelectContent>
@@ -361,7 +620,7 @@ export function TournamentWizard({ onComplete }) {
                   <div>
                     <Label>Match Format</Label>
                     <Select 
-                      value={watchedValues.settings?.matchFormat || currentGame?.defaultFormat} 
+                      value={watchedValues.settings?.matchFormat} 
                       onValueChange={(value) => form.setValue('settings.matchFormat', value)}
                     >
                       <SelectTrigger>
@@ -383,13 +642,13 @@ export function TournamentWizard({ onComplete }) {
                 <div>
                   <CardTitle className="mb-4">Participants</CardTitle>
                   <CardDescription>
-                    Configure how many participants can join and who can participate.
+                    Configure how many {watchedValues.tournamentType === TOURNAMENT_TYPE.TEAM ? 'teams' : 'participants'} can join and who can participate.
                   </CardDescription>
                 </div>
                 
                 <div className="grid gap-6">
                   <div>
-                    <Label htmlFor="maxParticipants">Maximum Participants *</Label>
+                    <Label htmlFor="maxParticipants">Maximum {watchedValues.tournamentType === TOURNAMENT_TYPE.TEAM ? 'Teams' : 'Participants'} *</Label>
                     <Select 
                       value={watchedValues.maxParticipants?.toString()} 
                       onValueChange={(value) => form.setValue('maxParticipants', parseInt(value))}
@@ -413,26 +672,69 @@ export function TournamentWizard({ onComplete }) {
                         </div>
                       </div>
                     )}
+                    {watchedValues.tournamentType === TOURNAMENT_TYPE.TEAM && (
+                      <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <div className="text-sm text-blue-800">
+                          <strong>Team Tournament:</strong> Teams will need to register with {watchedValues.teamSize} players each.
+                          Team captains will select their roster and manage match participation.
+                        </div>
+                      </div>
+                    )}
                   </div>
                   
                   <div>
                     <Label>Who can participate?</Label>
-                    <Select 
-                      value={watchedValues.participationType} 
+                    <Select
+                      value={watchedValues.participationType}
                       onValueChange={(value) => form.setValue('participationType', value)}
                     >
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={PARTICIPATION_TYPE.ANYONE}>
-                          Anyone (no registration required)
+                        <SelectItem value={PARTICIPATION_TYPE.ANYONE} className="p-0">
+                          <div className="p-3 w-full">
+                            <div className="font-medium text-foreground">Anyone</div>
+                            <div className="text-xs text-gray-600 mt-1 leading-relaxed">
+                              {watchedValues.tournamentType === TOURNAMENT_TYPE.TEAM
+                                ? 'Team captains must be registered, team members can be anyone'
+                                : 'No registration required for participants'
+                              }
+                            </div>
+                          </div>
                         </SelectItem>
-                        <SelectItem value={PARTICIPATION_TYPE.REGISTERED_ONLY}>
-                          Registered users only
+                        <SelectItem value={PARTICIPATION_TYPE.REGISTERED_ONLY} className="p-0">
+                          <div className="p-3 w-full">
+                            <div className="font-medium text-foreground">Registered Users Only</div>
+                            <div className="text-xs text-gray-600 mt-1 leading-relaxed">
+                              {watchedValues.tournamentType === TOURNAMENT_TYPE.TEAM
+                                ? 'All team members must be registered users'
+                                : 'Only registered users can participate'
+                              }
+                            </div>
+                          </div>
                         </SelectItem>
                       </SelectContent>
                     </Select>
+
+                    {/* Explanatory note for team tournaments */}
+                    {watchedValues.tournamentType === TOURNAMENT_TYPE.TEAM && (
+                      <div className="mt-2 p-3 bg-blue-50 rounded border border-blue-200">
+                        <div className="text-sm text-blue-800">
+                          <strong>Team Tournament Rules:</strong>
+                          <ul className="mt-1 ml-4 list-disc space-y-1">
+                            <li>Team captains are always required to be registered users</li>
+                            <li>
+                              {watchedValues.participationType === PARTICIPATION_TYPE.ANYONE
+                                ? 'Team members can be invited by username or email (unregistered users can join via invite links)'
+                                : 'All team members must have registered accounts to participate'
+                              }
+                            </li>
+                            <li>Captains manage their team roster and make match-related decisions</li>
+                          </ul>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   
                   <div>
@@ -548,9 +850,24 @@ export function TournamentWizard({ onComplete }) {
                     <h4 className="font-semibold mb-2">Tournament Summary</h4>
                     <div className="text-sm space-y-1">
                       <p><strong>Name:</strong> {watchedValues.name || 'Untitled Tournament'}</p>
-                      <p><strong>Game:</strong> {currentGame?.name || 'Not selected'}</p>
+                      <p><strong>Game:</strong> {selectedGameProfile?.game || 'Not selected'}</p>
+                      <p><strong>Type:</strong> {watchedValues.tournamentType === TOURNAMENT_TYPE.TEAM ? 'Team Tournament' : 'Individual Tournament'}</p>
                       <p><strong>Format:</strong> {watchedValues.format?.replace('_', ' ') || 'Single Elimination'}</p>
-                      <p><strong>Participants:</strong> Up to {watchedValues.maxParticipants}</p>
+                      <p><strong>Participants:</strong> Up to {watchedValues.maxParticipants} {watchedValues.tournamentType === TOURNAMENT_TYPE.TEAM ? 'teams' : 'players'}</p>
+                      {watchedValues.tournamentType === TOURNAMENT_TYPE.TEAM && (
+                        <p><strong>Team Size:</strong> {watchedValues.teamSize} players per team</p>
+                      )}
+                      <p><strong>Participation:</strong> {
+                        watchedValues.tournamentType === TOURNAMENT_TYPE.TEAM ? (
+                          watchedValues.participationType === PARTICIPATION_TYPE.ANYONE
+                            ? 'Captains must be registered, members can be anyone'
+                            : 'All team members must be registered'
+                        ) : (
+                          watchedValues.participationType === PARTICIPATION_TYPE.ANYONE
+                            ? 'Anyone can join'
+                            : 'Registered users only'
+                        )
+                      }</p>
                       <p><strong>Match Format:</strong> {watchedValues.settings?.matchFormat?.toUpperCase() || 'BO1'}</p>
                       {duration && (
                         <p><strong>Estimated Duration:</strong> {duration.estimatedHours} hours</p>
@@ -587,7 +904,17 @@ export function TournamentWizard({ onComplete }) {
                 <ChevronRight className="h-4 w-4 ml-2" />
               </Button>
             ) : (
-              <Button type="submit" disabled={isSubmitting}>
+              <Button
+                type="submit"
+                disabled={isSubmitting}
+                onClick={() => {
+                  console.log('Submit button clicked!')
+                  console.log('Form valid:', form.formState.isValid)
+                  console.log('Form errors:', form.formState.errors)
+                  console.log('Form values:', form.getValues())
+                  console.log('Selected game profile:', selectedGameProfile)
+                }}
+              >
                 {isSubmitting ? 'Creating Tournament...' : 'Create Tournament'}
                 <Trophy className="h-4 w-4 ml-2" />
               </Button>

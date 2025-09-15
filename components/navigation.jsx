@@ -39,6 +39,8 @@ export function Navigation() {
   const navigation = [
     { name: "Home", href: "/" },
     { name: "Tournaments", href: "/tournaments" },
+    { name: "Teams", href: "/teams" },
+    { name: "Players", href: "/players" },
     { name: "Create", href: "/create" },
   ];
 

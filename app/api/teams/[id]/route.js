@@ -35,7 +35,7 @@ export async function GET(request, { params }) {
     if (team && team.team_members) {
       // Check if captain is already in team members
       const captainIsMember = team.team_members.some(m => m.user_id === team.captain_id);
-      
+
       // If captain is not a member, add them (for backward compatibility)
       if (!captainIsMember && team.captain_id) {
         team.team_members.unshift({
@@ -47,12 +47,12 @@ export async function GET(request, { params }) {
         });
       }
 
-      // For registered users, fetch their display names from the users table
+      // For registered users, fetch their display names, game profiles, and player stats
       const registeredMembers = team.team_members.filter(m => m.is_registered && m.user_id);
-      
+
       if (registeredMembers.length > 0) {
         const userIds = registeredMembers.map(m => m.user_id);
-        
+
         // Use service client for user lookup to bypass RLS
         const serviceSupabase = createClient(supabaseUrl, process.env.SUPABASE_SERVICE_ROLE_KEY);
         const { data: users, error: usersError } = await serviceSupabase
@@ -60,19 +60,91 @@ export async function GET(request, { params }) {
           .select('id, display_name, username, email')
           .in('id', userIds);
 
+        // Fetch game profiles for team members
+        const { data: gameProfiles } = await serviceSupabase
+          .from('user_game_profiles')
+          .select('*')
+          .in('user_id', userIds)
+          .eq('game_id', team.game);
+
+        // Fetch player stats for team members
+        const { data: playerStats } = await serviceSupabase
+          .from('player_stats')
+          .select('*')
+          .in('user_id', userIds)
+          .eq('game_id', team.game);
+
         // Merge user data with team members
         team.team_members = team.team_members.map(member => {
           if (member.is_registered && member.user_id) {
             const userData = users?.find(u => u.id === member.user_id);
+            const gameProfile = gameProfiles?.find(gp => gp.user_id === member.user_id);
+            const stats = playerStats?.find(ps => ps.user_id === member.user_id);
+
             return {
               ...member,
               display_name: userData?.display_name || userData?.username || member.display_name || 'User',
-              email: userData?.email || member.email
+              email: userData?.email || member.email,
+              username: userData?.username,
+              game_profile: gameProfile,
+              player_stats: stats
             };
           }
           return member;
         });
       }
+    }
+
+    // Fetch team performance stats
+    let teamStats = null;
+    if (team?.game) {
+      const { data: stats } = await supabase
+        .from('team_stats')
+        .select('*')
+        .eq('team_id', id)
+        .eq('game_id', team.game)
+        .single();
+      teamStats = stats;
+    }
+
+    // Fetch recent tournament results
+    const { data: tournamentResults } = await supabase
+      .from('team_tournament_results')
+      .select(`
+        *,
+        tournament:tournaments(
+          id,
+          name
+        )
+      `)
+      .eq('team_id', id)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    // Get captain name
+    let captainName = 'Unknown';
+    if (team?.captain_id) {
+      const serviceSupabase = createClient(supabaseUrl, process.env.SUPABASE_SERVICE_ROLE_KEY);
+      const { data: captain } = await serviceSupabase
+        .from('users')
+        .select('display_name, username')
+        .eq('id', team.captain_id)
+        .single();
+
+      if (captain) {
+        captainName = captain.display_name || captain.username;
+      }
+    }
+
+    // Add computed fields to team
+    if (team) {
+      team.member_details = team.team_members || [];
+      team.stats = teamStats;
+      team.tournament_results = tournamentResults?.map(result => ({
+        ...result,
+        tournament_name: result.tournament?.name || 'Unknown Tournament'
+      })) || [];
+      team.captain_name = captainName;
     }
 
     if (error) {
@@ -83,7 +155,10 @@ export async function GET(request, { params }) {
       return NextResponse.json({ error: 'Failed to fetch team' }, { status: 500 });
     }
 
-    return NextResponse.json({ team });
+    return NextResponse.json({
+      success: true,
+      team
+    });
   } catch (error) {
     console.error('API Error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

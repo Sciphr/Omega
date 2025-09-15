@@ -60,7 +60,7 @@ export default function CreateTeamPage() {
 
       if (response.ok) {
         const { team } = await response.json()
-        router.push(`/teams/${team.id}`)
+        router.push(`/profile/teams/${team.id}`)
       } else {
         const errorData = await response.json()
         console.error('Failed to create team:', errorData.error)

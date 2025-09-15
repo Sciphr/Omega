@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase-server'
+import { createClient, createServiceClient } from '@/lib/supabase-server'
 import { TournamentService } from '@/lib/database'
 
 // Register a team for tournament
@@ -23,9 +23,17 @@ export async function POST(request, { params }) {
 
     // Validate input
     if (!user_team_id || !roster_assignments || !Array.isArray(roster_assignments)) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Team ID and roster assignments are required' 
+      return NextResponse.json({
+        success: false,
+        error: 'Team ID and roster assignments are required'
+      }, { status: 400 })
+    }
+
+    // Validate roster assignments is not empty
+    if (roster_assignments.length === 0) {
+      return NextResponse.json({
+        success: false,
+        error: 'At least one team member is required'
       }, { status: 400 })
     }
 
@@ -42,9 +50,25 @@ export async function POST(request, { params }) {
 
     // Validate tournament status
     if (tournament.status !== 'registration') {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Tournament registration is closed' 
+      return NextResponse.json({
+        success: false,
+        error: 'Tournament registration is closed'
+      }, { status: 400 })
+    }
+
+    // Validate team size requirements
+    const requiredTeamSize = tournament.team_size || 5 // Default to 5 if not set
+    if (roster_assignments.length < requiredTeamSize) {
+      return NextResponse.json({
+        success: false,
+        error: `Team must have at least ${requiredTeamSize} members. Current roster has ${roster_assignments.length} members.`
+      }, { status: 400 })
+    }
+
+    if (roster_assignments.length > requiredTeamSize) {
+      return NextResponse.json({
+        success: false,
+        error: `Team cannot have more than ${requiredTeamSize} members. Current roster has ${roster_assignments.length} members.`
       }, { status: 400 })
     }
 
@@ -93,10 +117,30 @@ export async function POST(request, { params }) {
 
     // Create participant entries for each roster member
     const participantPromises = roster_assignments.map(async (member) => {
+      let finalUserId = member.user_id
+
+      if (!finalUserId) {
+        // Create a temporary/guest user record using service client to bypass RLS
+        const serviceClient = createServiceClient()
+        const { data: guestUser, error: guestError } = await serviceClient
+          .from('users')
+          .insert({
+            username: `guest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            email: `guest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}@temp.local`,
+            display_name: member.participant_name,
+            is_verified: false
+          })
+          .select()
+          .single()
+
+        if (guestError) throw guestError
+        finalUserId = guestUser.id
+      }
+
       const participantData = {
         tournament_id: tournamentId,
         team_id: tournamentTeam.id,
-        user_id: member.user_id || null,
+        user_id: finalUserId,
         participant_name: member.participant_name,
         participant_type: 'team',
         email: member.email || null,

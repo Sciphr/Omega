@@ -1,40 +1,46 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { Trophy, Users, Crown, Calendar, Activity, Target, TrendingUp, Star } from 'lucide-react'
+import { Trophy, Users, Crown, Calendar, Activity, Target, TrendingUp, Star, Gamepad2 } from 'lucide-react'
 import Link from 'next/link'
 
-export default function TeamDetailPage() {
+export default function PlayerProfilePage() {
   const params = useParams()
-  const teamId = params.id
-  const [team, setTeam] = useState(null)
+  const searchParams = useSearchParams()
+  const playerId = params.id
+  const gameId = searchParams.get('game')
+  const [player, setPlayer] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    if (teamId) {
-      fetchTeamDetails()
+    if (playerId) {
+      fetchPlayerProfile()
     }
-  }, [teamId])
+  }, [playerId, gameId])
 
-  const fetchTeamDetails = async () => {
+  const fetchPlayerProfile = async () => {
     try {
       setLoading(true)
-      const response = await fetch(`/api/teams/${teamId}`)
+      const url = gameId
+        ? `/api/players/${playerId}?game=${gameId}`
+        : `/api/players/${playerId}`
+
+      const response = await fetch(url)
       if (!response.ok) {
-        throw new Error('Failed to fetch team details')
+        throw new Error('Failed to fetch player profile')
       }
 
       const data = await response.json()
       if (data.success) {
-        setTeam(data.team)
+        setPlayer(data.player)
       } else {
-        throw new Error(data.error || 'Failed to fetch team details')
+        throw new Error(data.error || 'Failed to fetch player profile')
       }
     } catch (err) {
       setError(err.message)
@@ -51,6 +57,11 @@ export default function TeamDetailPage() {
   const formatWinRate = (winRate) => {
     if (!winRate) return '0%'
     return `${Math.round(winRate)}%`
+  }
+
+  const formatKDA = (kda) => {
+    if (!kda) return '0.00'
+    return Number(kda).toFixed(2)
   }
 
   const getPerformanceColor = (rating) => {
@@ -117,22 +128,22 @@ export default function TeamDetailPage() {
     return (
       <div className="container mx-auto px-6 py-8">
         <div className="text-center">
-          <p className="text-red-600">Error loading team: {error}</p>
-          <Button onClick={fetchTeamDetails} className="mt-4">Try Again</Button>
+          <p className="text-red-600">Error loading player: {error}</p>
+          <Button onClick={fetchPlayerProfile} className="mt-4">Try Again</Button>
         </div>
       </div>
     )
   }
 
-  if (!team) {
+  if (!player) {
     return (
       <div className="container mx-auto px-6 py-8">
         <div className="text-center">
           <Users className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-          <h3 className="text-lg font-semibold mb-2">Team not found</h3>
-          <p className="text-muted-foreground">The team you're looking for doesn't exist or has been removed.</p>
-          <Link href="/teams">
-            <Button className="mt-4">Back to Teams</Button>
+          <h3 className="text-lg font-semibold mb-2">Player not found</h3>
+          <p className="text-muted-foreground">The player you're looking for doesn't exist or has been removed.</p>
+          <Link href="/players">
+            <Button className="mt-4">Back to Players</Button>
           </Link>
         </div>
       </div>
@@ -144,28 +155,49 @@ export default function TeamDetailPage() {
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-          <Link href="/teams" className="hover:text-foreground">Teams</Link>
+          <Link href="/players" className="hover:text-foreground">Players</Link>
           <span>/</span>
-          <span>{team.name}</span>
+          <span>{player.display_name || player.username}</span>
         </div>
         <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">{team.name}</h1>
-            <div className="flex items-center gap-4 text-muted-foreground">
-              <span>{team.game}</span>
-              <span>•</span>
-              <span>Created {new Date(team.created_at).toLocaleDateString()}</span>
-              {team.stats?.last_active && (
-                <>
-                  <span>•</span>
-                  <span>Last active {new Date(team.stats.last_active).toLocaleDateString()}</span>
-                </>
+          <div className="flex items-center gap-4">
+            <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white text-2xl font-bold">
+              {(player.display_name || player.username)?.charAt(0)?.toUpperCase() || '?'}
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold mb-2">{player.display_name || player.username}</h1>
+              <div className="flex items-center gap-4 text-muted-foreground">
+                {player.current_game && (
+                  <>
+                    <span className="flex items-center gap-1">
+                      <Gamepad2 className="h-4 w-4" />
+                      {player.current_game}
+                    </span>
+                    <span>•</span>
+                  </>
+                )}
+                {player.game_profile?.display_name && (
+                  <>
+                    <span>{player.game_profile.display_name}</span>
+                    <span>•</span>
+                  </>
+                )}
+                {player.stats?.last_active && (
+                  <span>Last active {new Date(player.stats.last_active).toLocaleDateString()}</span>
+                )}
+              </div>
+              {player.game_profile?.rank && (
+                <div className="mt-2">
+                  <Badge className={getRankColor(player.game_profile.rank)}>
+                    {player.game_profile.rank}
+                  </Badge>
+                </div>
               )}
             </div>
           </div>
-          {team.stats?.performance_rating && (
-            <Badge className={`${getPerformanceColor(team.stats.performance_rating)} text-lg px-3 py-1`}>
-              {formatPerformanceRating(team.stats.performance_rating)}
+          {player.stats?.performance_rating && (
+            <Badge className={`${getPerformanceColor(player.stats.performance_rating)} text-lg px-3 py-1`}>
+              {formatPerformanceRating(player.stats.performance_rating)}
             </Badge>
           )}
         </div>
@@ -174,89 +206,45 @@ export default function TeamDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Content */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Team Members */}
+          {/* Game Profiles */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5" />
-                Team Members ({team.member_details?.length || 0})
+                <Gamepad2 className="h-5 w-5" />
+                Game Profiles
               </CardTitle>
               <CardDescription>
-                Current roster and their game profiles
+                Player rankings and profiles across different games
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {team.member_details?.map((member) => {
-                  const isRegisteredUser = member.is_registered && member.user_id
-                  const MemberCard = isRegisteredUser ?
-                    ({ children }) => (
-                      <Link href={`/players/${member.user_id}?game=${team.game}`} className="block">
-                        {children}
-                      </Link>
-                    ) :
-                    ({ children }) => <div>{children}</div>
-
-                  return (
-                    <MemberCard key={member.id}>
-                      <div className={`flex items-center justify-between p-4 border rounded-lg ${isRegisteredUser ? 'hover:shadow-md transition-shadow cursor-pointer hover:border-primary/20' : ''}`}>
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
-                            {(member.display_name || member.username)?.charAt(0)?.toUpperCase() || '?'}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className={`font-medium ${isRegisteredUser ? 'text-primary hover:underline' : ''}`}>
-                                {member.display_name || member.username}
-                              </span>
-                              {member.id === team.captain_id && (
-                                <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
-                                  <Crown className="h-3 w-3 mr-1" />
-                                  Captain
-                                </Badge>
-                              )}
-                              {!isRegisteredUser && (
-                                <Badge variant="outline" className="text-xs">
-                                  Guest
-                                </Badge>
-                              )}
-                            </div>
-                            {member.game_profile && (
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <span>{member.game_profile.display_name}</span>
-                                {member.game_profile.rank && (
-                                  <Badge className={getRankColor(member.game_profile.rank)}>
-                                    {member.game_profile.rank}
-                                  </Badge>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <div className="text-right text-sm">
-                          {member.player_stats ? (
-                            <>
-                              <div className="font-medium">
-                                {formatPerformanceRating(member.player_stats.performance_rating)}
-                              </div>
-                              <div className="text-muted-foreground">
-                                {formatWinRate(member.player_stats.win_rate)} WR
-                              </div>
-                            </>
-                          ) : (
-                            <div className="text-muted-foreground">
-                              {isRegisteredUser ? 'No stats' : 'Guest member'}
-                            </div>
-                          )}
+                {player.game_profiles?.map((profile) => (
+                  <div key={profile.game_id} className="flex items-center justify-between p-4 border rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                        <Gamepad2 className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <div className="font-medium">{profile.game_id}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {profile.display_name}
                         </div>
                       </div>
-                    </MemberCard>
-                  )
-                })}
-                {(!team.member_details || team.member_details.length === 0) && (
+                    </div>
+                    <div className="text-right">
+                      {profile.rank && (
+                        <Badge className={getRankColor(profile.rank)}>
+                          {profile.rank}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {(!player.game_profiles || player.game_profiles.length === 0) && (
                   <div className="text-center py-8 text-muted-foreground">
-                    <Users className="mx-auto h-8 w-8 mb-2" />
-                    <p>No member information available</p>
+                    <Gamepad2 className="mx-auto h-8 w-8 mb-2" />
+                    <p>No game profiles available</p>
                   </div>
                 )}
               </div>
@@ -275,9 +263,9 @@ export default function TeamDetailPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {team.tournament_results && team.tournament_results.length > 0 ? (
+              {player.tournament_results && player.tournament_results.length > 0 ? (
                 <div className="space-y-3">
-                  {team.tournament_results.map((result) => (
+                  {player.tournament_results.map((result) => (
                     <div key={result.id} className="flex items-center justify-between p-3 border rounded-lg">
                       <div>
                         <div className="font-medium">{result.tournament_name}</div>
@@ -293,7 +281,7 @@ export default function TeamDetailPage() {
                           </span>
                         </div>
                         <div className="text-sm text-muted-foreground">
-                          {result.wins}W - {result.losses}L
+                          {result.kills}K/{result.deaths}D/{result.assists}A
                         </div>
                       </div>
                     </div>
@@ -320,39 +308,54 @@ export default function TeamDetailPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {team.stats ? (
+              {player.stats ? (
                 <>
                   <div className="flex justify-between items-center">
                     <span className="text-sm">Win Rate</span>
-                    <span className="font-bold text-lg">{formatWinRate(team.stats.win_rate)}</span>
+                    <span className="font-bold text-lg">{formatWinRate(player.stats.win_rate)}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">KDA Ratio</span>
+                    <span className="font-bold text-lg">{formatKDA(player.stats.kda_ratio)}</span>
                   </div>
 
                   <Separator />
 
                   <div className="flex justify-between items-center">
                     <span className="text-sm">Tournaments Won</span>
-                    <span className="font-medium">{team.stats.tournaments_won || 0}</span>
+                    <span className="font-medium">{player.stats.tournaments_won || 0}</span>
                   </div>
 
                   <div className="flex justify-between items-center">
                     <span className="text-sm">Tournaments Played</span>
-                    <span className="font-medium">{team.stats.tournaments_played || 0}</span>
+                    <span className="font-medium">{player.stats.tournaments_played || 0}</span>
                   </div>
 
                   <div className="flex justify-between items-center">
-                    <span className="text-sm">Total Wins</span>
-                    <span className="font-medium">{team.stats.total_wins || 0}</span>
+                    <span className="text-sm">Total Kills</span>
+                    <span className="font-medium">{player.stats.total_kills || 0}</span>
                   </div>
 
                   <div className="flex justify-between items-center">
-                    <span className="text-sm">Total Losses</span>
-                    <span className="font-medium">{team.stats.total_losses || 0}</span>
+                    <span className="text-sm">Total Deaths</span>
+                    <span className="font-medium">{player.stats.total_deaths || 0}</span>
                   </div>
 
-                  {team.stats.average_placement && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">Total Assists</span>
+                    <span className="font-medium">{player.stats.total_assists || 0}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">MVP Awards</span>
+                    <span className="font-medium">{player.stats.mvp_awards || 0}</span>
+                  </div>
+
+                  {player.stats.average_placement && (
                     <div className="flex justify-between items-center">
                       <span className="text-sm">Avg. Placement</span>
-                      <span className="font-medium">#{Math.round(team.stats.average_placement)}</span>
+                      <span className="font-medium">#{Math.round(player.stats.average_placement)}</span>
                     </div>
                   )}
                 </>
@@ -365,34 +368,44 @@ export default function TeamDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Team Info */}
+          {/* Player Info */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Activity className="h-5 w-5" />
-                Team Info
+                Player Info
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <div className="text-sm text-muted-foreground mb-1">Captain</div>
-                <div className="font-medium">{team.captain_name || 'Unknown'}</div>
+                <div className="text-sm text-muted-foreground mb-1">Username</div>
+                <div className="font-medium">{player.username}</div>
               </div>
 
-              <div>
-                <div className="text-sm text-muted-foreground mb-1">Game</div>
-                <div className="font-medium">{team.game}</div>
-              </div>
-
-              <div>
-                <div className="text-sm text-muted-foreground mb-1">Team Size</div>
-                <div className="font-medium">{team.member_details?.length || 0} / {team.max_members || 5}</div>
-              </div>
-
-              {team.description && (
+              {player.display_name && player.display_name !== player.username && (
                 <div>
-                  <div className="text-sm text-muted-foreground mb-1">Description</div>
-                  <div className="text-sm">{team.description}</div>
+                  <div className="text-sm text-muted-foreground mb-1">Display Name</div>
+                  <div className="font-medium">{player.display_name}</div>
+                </div>
+              )}
+
+              {player.stats?.preferred_role && (
+                <div>
+                  <div className="text-sm text-muted-foreground mb-1">Preferred Role</div>
+                  <div className="font-medium">{player.stats.preferred_role}</div>
+                </div>
+              )}
+
+              {player.stats?.favorite_champions && player.stats.favorite_champions.length > 0 && (
+                <div>
+                  <div className="text-sm text-muted-foreground mb-1">Favorite Champions</div>
+                  <div className="flex flex-wrap gap-1">
+                    {player.stats.favorite_champions.slice(0, 5).map((champion, index) => (
+                      <Badge key={index} variant="outline" className="text-xs">
+                        {champion}
+                      </Badge>
+                    ))}
+                  </div>
                 </div>
               )}
             </CardContent>

@@ -65,7 +65,7 @@ export async function GET(request) {
         joined_at,
         status,
         eliminated_at,
-        tournaments!inner (
+        tournaments!participants_tournament_id_fkey (
           id,
           name,
           game,
@@ -109,8 +109,32 @@ export async function GET(request) {
       role: 'creator'
     })) || [];
 
-    // Combine and sort by most recent activity
-    const allTournaments = [...formattedCreated, ...formattedParticipated]
+    // Deduplicate tournaments (creator + participant) and merge roles
+    const tournamentMap = new Map();
+
+    // Add created tournaments first
+    formattedCreated.forEach(tournament => {
+      tournamentMap.set(tournament.id, tournament);
+    });
+
+    // Add participated tournaments, merging with created ones if they exist
+    formattedParticipated.forEach(tournament => {
+      const existing = tournamentMap.get(tournament.id);
+      if (existing) {
+        // Tournament exists in both lists - user is both creator and participant
+        tournamentMap.set(tournament.id, {
+          ...existing,
+          role: 'creator', // Prioritize creator role
+          participation: tournament.participation // Add participation data
+        });
+      } else {
+        // New tournament - user is only participant
+        tournamentMap.set(tournament.id, tournament);
+      }
+    });
+
+    // Convert back to array and sort by most recent activity
+    const allTournaments = Array.from(tournamentMap.values())
       .sort((a, b) => {
         const aDate = a.participation?.joined_at || a.created_at;
         const bDate = b.participation?.joined_at || b.created_at;

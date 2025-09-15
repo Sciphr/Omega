@@ -78,15 +78,18 @@ export async function GET(request, { params }) {
         
         // Tournament creators have full access, others are spectators if tournament is public
         if (isTournamentCreator) {
+          hasParticipantAccess = true // Tournament creators have participant access
           isSpectator = true // Creators can also spectate
         } else {
           isSpectator = match.tournament.is_public
         }
-        
+
         // Check if user is a participant (fallback if no token provided)
         if (match.participant1?.user_id === user.id) {
+          hasParticipantAccess = true
           currentParticipant = match.participant1
         } else if (match.participant2?.user_id === user.id) {
+          hasParticipantAccess = true
           currentParticipant = match.participant2
         }
       } else if (match.tournament.is_public) {

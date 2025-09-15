@@ -35,6 +35,9 @@ export async function DELETE(request, { params }) {
       }, { status: 404 })
     }
 
+    // Get the display_order of the participant being removed
+    const removedDisplayOrder = participant.display_order
+
     // Remove participant
     const { error: deleteError } = await supabase
       .from('participants')
@@ -44,10 +47,39 @@ export async function DELETE(request, { params }) {
 
     if (deleteError) {
       console.error('Failed to remove participant:', deleteError)
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Failed to remove participant' 
+      return NextResponse.json({
+        success: false,
+        error: 'Failed to remove participant'
       }, { status: 500 })
+    }
+
+    // Renumber display_order for remaining participants
+    // All participants with display_order > removedDisplayOrder should be decremented by 1
+    if (removedDisplayOrder) {
+      // Get all participants that need renumbering
+      const { data: participantsToRenumber, error: fetchError } = await supabase
+        .from('participants')
+        .select('id, display_order')
+        .eq('tournament_id', tournamentId)
+        .gt('display_order', removedDisplayOrder)
+
+      if (!fetchError && participantsToRenumber?.length > 0) {
+        // Update each participant's display_order
+        const updatePromises = participantsToRenumber.map(p =>
+          supabase
+            .from('participants')
+            .update({ display_order: p.display_order - 1 })
+            .eq('id', p.id)
+        )
+
+        const results = await Promise.all(updatePromises)
+        const renumberErrors = results.filter(result => result.error)
+
+        if (renumberErrors.length > 0) {
+          console.error('Some participants failed to renumber:', renumberErrors)
+          // Don't fail the request if renumbering fails, just log it
+        }
+      }
     }
 
     return NextResponse.json({

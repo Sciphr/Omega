@@ -11,6 +11,7 @@ import { Separator } from '@/components/ui/separator'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { BracketVisualization } from '@/components/bracket-visualization'
 import { 
   Trophy, 
@@ -36,9 +37,12 @@ import {
   Shuffle,
   CheckCircle,
   XCircle,
-  Loader2
+  Loader2,
+  StopCircle,
+  Trash,
+  AlertCircle
 } from 'lucide-react'
-import { GAME_TEMPLATES, TOURNAMENT_STATUS, TOURNAMENT_FORMAT } from '@/lib/types'
+import { GAME_TEMPLATES, TOURNAMENT_STATUS, TOURNAMENT_FORMAT, COMPLETION_REASON } from '@/lib/types'
 import { BracketGenerator } from '@/lib/bracket-utils'
 import { supabase } from '@/lib/supabase'
 
@@ -76,10 +80,23 @@ const mockTournament = {
 export default function TournamentPage() {
   const params = useParams()
   const [tournament, setTournament] = useState(null)
+
+  // Helper function to show notifications
+  const showNotification = (message, type = 'success') => {
+    setNotification({ message, type })
+    // Auto-hide after 5 seconds
+    setTimeout(() => setNotification(null), 5000)
+  }
   const [bracket, setBracket] = useState(null)
   const [activeTab, setActiveTab] = useState('bracket')
   const [loading, setLoading] = useState(true)
   const [startingTournament, setStartingTournament] = useState(false)
+  const [stoppingTournament, setStoppingTournament] = useState(false)
+  const [deletingTournament, setDeletingTournament] = useState(false)
+  const [notification, setNotification] = useState(null)
+  const [showStopConfirm, setShowStopConfirm] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [declaredWinner, setDeclaredWinner] = useState('')
   const [currentUser, setCurrentUser] = useState(null)
   const [loadingAuth, setLoadingAuth] = useState(true)
   const [showJoinModal, setShowJoinModal] = useState(false)
@@ -141,14 +158,18 @@ export default function TournamentPage() {
             // Use real matches from database for in-progress and completed tournaments
             const bracketWithMatches = BracketGenerator.generateBracketFromMatches(
               result.tournament.matches,
-              result.tournament.participants
+              result.tournament.participants,
+              result.tournament.format
             )
             setBracket(bracketWithMatches)
           } else if (result.tournament.status === 'in_progress' && result.tournament.participants?.length >= 4) {
             // Fallback: generate bracket from participants if no matches exist yet
-            const generatedBracket = BracketGenerator.generateSingleElimination(
-              result.tournament.participants
-            )
+            let generatedBracket
+            if (result.tournament.format === 'double_elimination') {
+              generatedBracket = BracketGenerator.generateDoubleElimination(result.tournament.participants)
+            } else {
+              generatedBracket = BracketGenerator.generateSingleElimination(result.tournament.participants)
+            }
             setBracket(generatedBracket)
           } else if (result.tournament.status === 'registration') {
             // Generate bracket with mix of real participants and placeholders
@@ -180,7 +201,13 @@ export default function TournamentPage() {
               }
             })
             
-            const generatedBracket = BracketGenerator.generateSingleElimination(bracketParticipants)
+            // Generate bracket based on tournament format
+            let generatedBracket
+            if (result.tournament.format === 'double_elimination') {
+              generatedBracket = BracketGenerator.generateDoubleElimination(bracketParticipants)
+            } else {
+              generatedBracket = BracketGenerator.generateSingleElimination(bracketParticipants)
+            }
             setBracket(generatedBracket)
           }
         } else {
@@ -359,15 +386,109 @@ export default function TournamentPage() {
         
         // Switch to bracket tab to show the generated bracket
         setActiveTab('bracket')
+        showNotification('Tournament started successfully!')
       } else {
         console.error('Failed to start tournament:', result.error)
-        alert('Failed to start tournament: ' + result.error)
+        showNotification('Failed to start tournament: ' + result.error, 'error')
       }
     } catch (error) {
       console.error('Error starting tournament:', error)
-      alert('Failed to start tournament. Please try again.')
+      showNotification('Failed to start tournament. Please try again.', 'error')
     } finally {
       setStartingTournament(false)
+    }
+  }
+
+  const confirmStopTournament = () => {
+    if (!tournament || !isCreator || tournament.status === 'completed') {
+      return
+    }
+    setShowStopConfirm(true)
+  }
+
+  const handleStopTournament = async () => {
+    setShowStopConfirm(false)
+
+    setStoppingTournament(true)
+    try {
+      const requestBody = {}
+      if (declaredWinner) {
+        requestBody.declaredWinnerId = declaredWinner
+      }
+
+      const response = await fetch(`/api/tournaments/${tournament.id}/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(requestBody)
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        // Update tournament status with completion reason
+        setTournament(prev => ({
+          ...prev,
+          status: 'completed',
+          completion_reason: 'manual_stop',
+          declared_winner_id: declaredWinner || null,
+          completed_at: new Date().toISOString()
+        }))
+
+        // Reset declared winner state
+        setDeclaredWinner('')
+
+        const message = declaredWinner
+          ? 'Tournament stopped and winner declared successfully!'
+          : 'Tournament stopped successfully!'
+        showNotification(message)
+      } else {
+        console.error('Failed to stop tournament:', result.error)
+        showNotification('Failed to stop tournament: ' + result.error, 'error')
+      }
+    } catch (error) {
+      console.error('Error stopping tournament:', error)
+      showNotification('Failed to stop tournament. Please try again.', 'error')
+    } finally {
+      setStoppingTournament(false)
+    }
+  }
+
+  const confirmDeleteTournament = () => {
+    if (!tournament || !isCreator) {
+      return
+    }
+    setShowDeleteConfirm(true)
+  }
+
+  const handleDeleteTournament = async () => {
+    setShowDeleteConfirm(false)
+
+    setDeletingTournament(true)
+    try {
+      const response = await fetch(`/api/tournaments/${tournament.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include'
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        showNotification('Tournament deleted successfully!')
+        // Redirect to tournaments list after showing notification
+        setTimeout(() => {
+          window.location.href = '/tournaments'
+        }, 1500)
+      } else {
+        console.error('Failed to delete tournament:', result.error)
+        showNotification('Failed to delete tournament: ' + result.error, 'error')
+      }
+    } catch (error) {
+      console.error('Error deleting tournament:', error)
+      showNotification('Failed to delete tournament. Please try again.', 'error')
+    } finally {
+      setDeletingTournament(false)
     }
   }
 
@@ -408,6 +529,32 @@ export default function TournamentPage() {
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8">
+        {/* Notification */}
+        {notification && (
+          <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg border shadow-lg max-w-md ${
+            notification.type === 'success'
+              ? 'bg-green-50 border-green-200 text-green-800'
+              : 'bg-red-50 border-red-200 text-red-800'
+          }`}>
+            <div className="flex items-start">
+              {notification.type === 'success' ? (
+                <CheckCircle className="h-5 w-5 mr-3 mt-0.5 flex-shrink-0" />
+              ) : (
+                <AlertCircle className="h-5 w-5 mr-3 mt-0.5 flex-shrink-0" />
+              )}
+              <div className="flex-1">
+                <p className="text-sm font-medium">{notification.message}</p>
+              </div>
+              <button
+                onClick={() => setNotification(null)}
+                className="ml-3 text-current opacity-50 hover:opacity-75"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div className="mb-8">
           <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
@@ -502,61 +649,164 @@ export default function TournamentPage() {
                   </Button>
                 </Link>
               )}
+
+              {isCreator && (tournament.status === 'in_progress' || tournament.status === 'registration') && (
+                <Button
+                  variant="outline"
+                  onClick={confirmStopTournament}
+                  disabled={stoppingTournament}
+                  className="border-orange-200 text-orange-600 hover:bg-orange-50"
+                >
+                  {stoppingTournament ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Stopping...
+                    </>
+                  ) : (
+                    <>
+                      <StopCircle className="h-4 w-4 mr-2" />
+                      Stop Tournament
+                    </>
+                  )}
+                </Button>
+              )}
+
+              {isCreator && tournament.status !== 'in_progress' && (
+                <Button
+                  variant="outline"
+                  onClick={confirmDeleteTournament}
+                  disabled={deletingTournament}
+                  className="border-red-200 text-red-600 hover:bg-red-50"
+                >
+                  {deletingTournament ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash className="h-4 w-4 mr-2" />
+                      Delete Tournament
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Tournament Completion Celebration */}
+        {/* Tournament Completion Banner */}
         {tournament.status === 'completed' && (
           <div className="mb-8">
-            <Card className="border-2 border-green-200 bg-gradient-to-r from-green-50 to-emerald-50">
-              <CardContent className="p-6 text-center">
-                <div className="flex items-center justify-center space-x-3 mb-4">
-                  <Trophy className="h-12 w-12 text-yellow-500" />
-                  <div>
-                    <h2 className="text-2xl font-bold text-green-800">🎉 Tournament Completed! 🎉</h2>
-                    {(() => {
-                      // Find the tournament winner - simpler logic for any tournament size
-                      let finalMatch = null;
-                      
-                      if (tournament.matches?.length === 1) {
-                        // Single match tournament - that match is the final
-                        finalMatch = tournament.matches[0];
-                      } else {
-                        // Multi-match tournament - find highest round completed match with winner
-                        finalMatch = tournament.matches
-                          ?.filter(m => m.winner_id && m.status === 'completed')
-                          .sort((a, b) => b.round - a.round)[0];
-                      }
-                      
-                      const winner = finalMatch ? 
-                        tournament.participants?.find(p => p.id === finalMatch.winner_id) : null;
-                      
-                      return winner ? (
-                        <div className="mt-2">
-                          <p className="text-xl font-semibold text-green-700">
-                            🏆 Champion: {winner.participant_name} 🏆
-                          </p>
-                          <p className="text-green-600 mt-1">
-                            All matches have been finished and results are final
-                          </p>
+            {(() => {
+              const isManualStop = tournament.completion_reason === 'manual_stop'
+              const declaredWinner = tournament.declared_winner_id ?
+                tournament.participants?.find(p => p.id === tournament.declared_winner_id) : null
+
+              // For natural completion, find winner through matches
+              let naturalWinner = null
+              if (!isManualStop) {
+                let finalMatch = null;
+                if (tournament.matches?.length === 1) {
+                  finalMatch = tournament.matches[0];
+                } else {
+                  finalMatch = tournament.matches
+                    ?.filter(m => m.winner_id && m.status === 'completed')
+                    .sort((a, b) => b.round - a.round)[0];
+                }
+                naturalWinner = finalMatch ?
+                  tournament.participants?.find(p => p.id === finalMatch.winner_id) : null;
+              }
+
+              if (isManualStop && declaredWinner) {
+                // Manual stop with declared winner
+                return (
+                  <Card className="border-2 border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+                    <CardContent className="p-6 text-center">
+                      <div className="flex items-center justify-center space-x-3 mb-4">
+                        <Trophy className="h-12 w-12 text-yellow-500" />
+                        <div>
+                          <h2 className="text-2xl font-bold text-blue-800">🏁 Tournament Closed - Winner Declared</h2>
+                          <div className="mt-2">
+                            <p className="text-xl font-semibold text-blue-700">
+                              🏆 Winner: {declaredWinner.participant_name} 🏆
+                            </p>
+                            <p className="text-blue-600 mt-1">
+                              Tournament was stopped early by organizer
+                            </p>
+                          </div>
                         </div>
-                      ) : (
-                        <p className="text-green-600 mt-1">
-                          All matches have been finished and results are final
+                        <Trophy className="h-12 w-12 text-yellow-500" />
+                      </div>
+                      {tournament.completed_at && (
+                        <p className="text-sm text-blue-600">
+                          Closed on {new Date(tournament.completed_at).toLocaleDateString()} at {new Date(tournament.completed_at).toLocaleTimeString()}
                         </p>
-                      );
-                    })()}
-                  </div>
-                  <Trophy className="h-12 w-12 text-yellow-500" />
-                </div>
-                {tournament.completed_at && (
-                  <p className="text-sm text-green-600">
-                    Completed on {new Date(tournament.completed_at).toLocaleDateString()} at {new Date(tournament.completed_at).toLocaleTimeString()}
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+                      )}
+                    </CardContent>
+                  </Card>
+                )
+              } else if (isManualStop && !declaredWinner) {
+                // Manual stop without winner
+                return (
+                  <Card className="border-2 border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50">
+                    <CardContent className="p-6 text-center">
+                      <div className="flex items-center justify-center space-x-3 mb-4">
+                        <StopCircle className="h-12 w-12 text-orange-500" />
+                        <div>
+                          <h2 className="text-2xl font-bold text-orange-800">⏹️ Tournament Closed</h2>
+                          <div className="mt-2">
+                            <p className="text-orange-600">
+                              Tournament was closed early without declaring a winner
+                            </p>
+                          </div>
+                        </div>
+                        <StopCircle className="h-12 w-12 text-orange-500" />
+                      </div>
+                      {tournament.completed_at && (
+                        <p className="text-sm text-orange-600">
+                          Closed on {new Date(tournament.completed_at).toLocaleDateString()} at {new Date(tournament.completed_at).toLocaleTimeString()}
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                )
+              } else {
+                // Natural completion
+                return (
+                  <Card className="border-2 border-green-200 bg-gradient-to-r from-green-50 to-emerald-50">
+                    <CardContent className="p-6 text-center">
+                      <div className="flex items-center justify-center space-x-3 mb-4">
+                        <Trophy className="h-12 w-12 text-yellow-500" />
+                        <div>
+                          <h2 className="text-2xl font-bold text-green-800">🎉 Tournament Completed! 🎉</h2>
+                          {naturalWinner ? (
+                            <div className="mt-2">
+                              <p className="text-xl font-semibold text-green-700">
+                                🏆 Champion: {naturalWinner.participant_name} 🏆
+                              </p>
+                              <p className="text-green-600 mt-1">
+                                All matches have been finished and results are final
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="text-green-600 mt-1">
+                              All matches have been finished and results are final
+                            </p>
+                          )}
+                        </div>
+                        <Trophy className="h-12 w-12 text-yellow-500" />
+                      </div>
+                      {tournament.completed_at && (
+                        <p className="text-sm text-green-600">
+                          Completed on {new Date(tournament.completed_at).toLocaleDateString()} at {new Date(tournament.completed_at).toLocaleTimeString()}
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                )
+              }
+            })()}
           </div>
         )}
 
@@ -707,6 +957,7 @@ export default function TournamentPage() {
               onBracketUpdated={(updatedBracket) => {
                 setBracket(updatedBracket)
               }}
+              onTournamentUpdated={setTournament}
             />
           </TabsContent>
 
@@ -792,6 +1043,152 @@ export default function TournamentPage() {
                     <>
                       <Users className="h-4 w-4 mr-2" />
                       Join Tournament
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Stop Tournament Confirmation Modal */}
+      {showStopConfirm && (
+        <Dialog open={showStopConfirm} onOpenChange={setShowStopConfirm}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center text-orange-600">
+                <StopCircle className="h-5 w-5 mr-2" />
+                Stop Tournament
+              </DialogTitle>
+              <DialogDescription>
+                Are you sure you want to stop this tournament? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                <div className="text-sm text-orange-800">
+                  <p className="font-medium mb-2">This will:</p>
+                  <ul className="list-disc list-inside space-y-1">
+                    <li>Close the tournament early</li>
+                    <li>Prevent new matches from being played</li>
+                    <li>Lock the current tournament status</li>
+                  </ul>
+                </div>
+              </div>
+
+              {tournament.participants && tournament.participants.length > 0 && (
+                <div className="space-y-3">
+                  <Label htmlFor="winner-select">Declare Winner (Optional)</Label>
+                  <Select value={declaredWinner} onValueChange={setDeclaredWinner}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a winner (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">No winner declared</SelectItem>
+                      {tournament.participants
+                        .filter(p => p.status === 'active')
+                        .map(participant => (
+                          <SelectItem key={participant.id} value={participant.id}>
+                            {participant.participant_name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    If no winner is selected, the tournament will simply be marked as closed.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex justify-end space-x-2 pt-4">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowStopConfirm(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={handleStopTournament}
+                  disabled={stoppingTournament}
+                  className="bg-orange-600 hover:bg-orange-700"
+                >
+                  {stoppingTournament ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Stopping...
+                    </>
+                  ) : (
+                    <>
+                      <StopCircle className="h-4 w-4 mr-2" />
+                      Stop Tournament
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Delete Tournament Confirmation Modal */}
+      {showDeleteConfirm && (
+        <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center text-red-600">
+                <Trash className="h-5 w-5 mr-2" />
+                Delete Tournament
+              </DialogTitle>
+              <DialogDescription>
+                Are you sure you want to permanently delete this tournament?
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <div className="text-sm text-red-800">
+                  <p className="font-medium mb-2">⚠️ This action is irreversible and will:</p>
+                  <ul className="list-disc list-inside space-y-1">
+                    <li>Permanently delete the tournament</li>
+                    <li>Remove all participant data</li>
+                    <li>Delete all match records</li>
+                    <li>Remove tournament from all listings</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="bg-muted rounded-lg p-3">
+                <div className="text-sm">
+                  <p><strong>Tournament:</strong> {tournament.name}</p>
+                  <p><strong>Participants:</strong> {tournament.participants?.length || 0}</p>
+                  <p><strong>Status:</strong> {tournament.status}</p>
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-4">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowDeleteConfirm(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={handleDeleteTournament}
+                  disabled={deletingTournament}
+                >
+                  {deletingTournament ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash className="h-4 w-4 mr-2" />
+                      Delete Permanently
                     </>
                   )}
                 </Button>
@@ -939,7 +1336,7 @@ function TeamRegistrationForm({ userTeams, selectedTeam, setSelectedTeam, teamRo
   )
 }
 
-function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdded, onParticipantRemoved, bracket, onBracketUpdated }) {
+function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdded, onParticipantRemoved, bracket, onBracketUpdated, onTournamentUpdated }) {
   const [showAddModal, setShowAddModal] = useState(false)
   const [showAssignModal, setShowAssignModal] = useState(false)
   const [selectedParticipant, setSelectedParticipant] = useState(null)
@@ -948,6 +1345,21 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
   const [isSearching, setIsSearching] = useState(false)
   const [manualName, setManualName] = useState('')
   const [addMode, setAddMode] = useState('search') // 'search' or 'manual'
+
+  // Team search states for team tournaments
+  const [teamSearchQuery, setTeamSearchQuery] = useState('')
+  const [teamSearchResults, setTeamSearchResults] = useState([])
+  const [isSearchingTeams, setIsSearchingTeams] = useState(false)
+
+  // Team registration states
+  const [selectedTeamForRoster, setSelectedTeamForRoster] = useState(null)
+  const [showRosterSelection, setShowRosterSelection] = useState(false)
+  const [selectedRoster, setSelectedRoster] = useState([])
+  const [isRegisteringTeam, setIsRegisteringTeam] = useState(false)
+  const [modalError, setModalError] = useState(null)
+
+  // Check if this is a team tournament
+  const isTeamTournament = tournament?.tournament_type === 'team'
   
   // UI feedback states
   const [showRandomizeConfirm, setShowRandomizeConfirm] = useState(false)
@@ -960,50 +1372,30 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
 
   const activeParticipants = participants.filter(p => p.status === 'active')
   const eliminatedParticipants = participants.filter(p => p.status === 'eliminated')
-  
+
   // Debug logging
   console.log('ParticipantsList - participants:', participants)
   console.log('ParticipantsList - activeParticipants:', activeParticipants)
 
-  // Get available bracket positions
+  // Get available bracket positions based on database seeds
   const getAvailableBracketPositions = () => {
-    if (!bracket || !bracket.rounds || bracket.rounds.length === 0) return []
-    
-    const firstRound = bracket.rounds[0]
+    const maxParticipants = tournament.max_participants || 16
+    const takenSeeds = new Set(participants.map(p => p.seed).filter(seed => seed != null))
     const positions = []
-    
-    firstRound.matches.forEach((match, matchIndex) => {
-      // Check participant 1 position - consider placeholders as available
-      const isParticipant1Available = !match.participant1 || 
-        match.participant1.name === 'TBD' || 
-        match.participant1.name?.startsWith('Participant ') ||
-        match.participant1.participantName?.startsWith('Participant ')
-        
-      if (isParticipant1Available) {
+
+    for (let seed = 1; seed <= maxParticipants; seed++) {
+      if (!takenSeeds.has(seed)) {
+        const matchIndex = Math.floor((seed - 1) / 2)
+        const position = (seed - 1) % 2 + 1
         positions.push({
           matchIndex,
-          position: 1,
-          seed: matchIndex * 2 + 1,
-          description: `Match ${match.matchNumber || matchIndex + 1}, Position 1 (Seed ${matchIndex * 2 + 1})`
+          position,
+          seed,
+          description: `Match ${matchIndex + 1}, Position ${position} (Seed ${seed})`
         })
       }
-      
-      // Check participant 2 position - consider placeholders as available
-      const isParticipant2Available = !match.participant2 || 
-        match.participant2.name === 'TBD' || 
-        match.participant2.name?.startsWith('Participant ') ||
-        match.participant2.participantName?.startsWith('Participant ')
-        
-      if (isParticipant2Available) {
-        positions.push({
-          matchIndex,
-          position: 2,
-          seed: matchIndex * 2 + 2,
-          description: `Match ${match.matchNumber || matchIndex + 1}, Position 2 (Seed ${matchIndex * 2 + 2})`
-        })
-      }
-    })
-    
+    }
+
     return positions
   }
 
@@ -1078,7 +1470,18 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
 
       // Update local state
       const updatedBracket = { ...bracket }
-      const firstRound = updatedBracket.rounds[0]
+
+      // Get first round based on tournament format
+      let firstRound
+      if (updatedBracket.rounds) {
+        // Single elimination
+        firstRound = updatedBracket.rounds[0]
+      } else if (updatedBracket.winnerBracket?.rounds) {
+        // Double elimination - use winner bracket first round
+        firstRound = updatedBracket.winnerBracket.rounds[0]
+      } else {
+        throw new Error('Invalid bracket structure')
+      }
       const targetMatch = firstRound.matches[targetPosition.matchIndex]
       
       // Remove participant from any existing position first (ignore placeholders)
@@ -1135,7 +1538,8 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
           seed: targetPosition.seed
         }
       }
-      
+
+
       onBracketUpdated(updatedBracket)
       setShowAssignModal(false)
       setSelectedParticipant(null)
@@ -1229,29 +1633,55 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
 
   // Randomize all participant positions
   const confirmRandomizePositions = () => {
-    if (activeParticipants.length === 0) return
+    if (activeParticipants.length === 0) {
+      setActionStatus({ type: 'error', message: 'No participants to randomize' })
+      return
+    }
+
     setShowRandomizeConfirm(true)
   }
 
   const handleRandomizePositions = async () => {
-    if (!bracket || !onBracketUpdated || activeParticipants.length === 0) return
+    if (!onBracketUpdated || activeParticipants.length === 0) {
+      setActionStatus({ type: 'error', message: 'No participants to randomize' })
+      return
+    }
+
+    // Note: Randomization works whether tournament is started or not
+    // If bracket exists, we'll update both database and bracket state
+    // If no bracket, we'll just update the database (for pre-tournament seeding)
 
     setIsRandomizing(true)
     setActionStatus(null)
     setShowRandomizeConfirm(false)
 
     try {
-      // Get all available positions (1 through max tournament size)
+      // Step 1: Clear all active participants' seeds first
+      const clearPromises = activeParticipants.map(async (participant) => {
+        if (participant.seed) {
+          const response = await fetch(`/api/tournaments/${tournament.id}/participants/${participant.id}/seed`, {
+            method: 'DELETE',
+            credentials: 'include'
+          })
+
+          if (!response.ok) {
+            const errorData = await response.json()
+            throw new Error(`Failed to clear seed for ${participant.participantName}: ${errorData.error}`)
+          }
+        }
+      })
+
+      await Promise.all(clearPromises)
+
+      // Step 2: Generate shuffled seeds for assignment
       const maxPositions = tournament.max_participants || 16
       const availableSeeds = Array.from({ length: maxPositions }, (_, i) => i + 1)
-      
-      // Shuffle the available seeds
       const shuffledSeeds = [...availableSeeds].sort(() => Math.random() - 0.5)
-      
-      // Update each participant's seed in the database
+
+      // Step 3: Assign new seeds sequentially (no conflicts now)
       const updatePromises = activeParticipants.map(async (participant, index) => {
         const newSeed = shuffledSeeds[index] // Assign first N shuffled seeds to participants
-        
+
         const response = await fetch(`/api/tournaments/${tournament.id}/participants/${participant.id}/seed`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -1269,56 +1699,89 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
 
       const updatedParticipants = await Promise.all(updatePromises)
 
-      // Update bracket state
-      const updatedBracket = { ...bracket }
-      const firstRound = updatedBracket.rounds[0]
+      // Update bracket state if bracket exists (tournament already started)
+      if (bracket && onBracketUpdated) {
+        const updatedBracket = { ...bracket }
 
-      // Reset all positions to placeholders first
-      firstRound.matches.forEach((match, matchIndex) => {
-        const seed1 = matchIndex * 2 + 1
-        const seed2 = matchIndex * 2 + 2
-        
-        match.participant1 = {
-          id: `placeholder-${seed1}`,
-          name: `Participant ${seed1}`,
-          participantName: `Participant ${seed1}`,
-          seed: seed1,
-          status: 'pending'
-        }
-        
-        match.participant2 = {
-          id: `placeholder-${seed2}`,
-          name: `Participant ${seed2}`,
-          participantName: `Participant ${seed2}`,
-          seed: seed2,
-          status: 'pending'
-        }
-      })
-
-      // Place participants in their new positions
-      updatedParticipants.forEach(({ participant, seed }) => {
-        const matchIndex = Math.floor((seed - 1) / 2)
-        const position = (seed - 1) % 2 + 1
-        const targetMatch = firstRound.matches[matchIndex]
-
-        const participantData = {
-          id: participant.id,
-          name: participant.participantName,
-          participantName: participant.participantName,
-          seed: seed
-        }
-
-        if (position === 1) {
-          targetMatch.participant1 = participantData
+        // Get first round based on tournament format
+        let firstRound
+        if (updatedBracket.rounds) {
+          // Single elimination
+          firstRound = updatedBracket.rounds[0]
+        } else if (updatedBracket.winnerBracket?.rounds) {
+          // Double elimination - use winner bracket first round
+          firstRound = updatedBracket.winnerBracket.rounds[0]
         } else {
-          targetMatch.participant2 = participantData
+          // Invalid bracket structure, skip bracket update
+          firstRound = null
         }
-      })
 
-      onBracketUpdated(updatedBracket)
-      setActionStatus({ 
-        type: 'success', 
-        message: `Successfully randomized ${activeParticipants.length} participants!` 
+        if (firstRound) {
+          // Reset all positions to placeholders first
+          firstRound.matches.forEach((match, matchIndex) => {
+            const seed1 = matchIndex * 2 + 1
+            const seed2 = matchIndex * 2 + 2
+
+            match.participant1 = {
+              id: `placeholder-${seed1}`,
+              name: `Participant ${seed1}`,
+              participantName: `Participant ${seed1}`,
+              seed: seed1,
+              status: 'pending'
+            }
+
+            match.participant2 = {
+              id: `placeholder-${seed2}`,
+              name: `Participant ${seed2}`,
+              participantName: `Participant ${seed2}`,
+              seed: seed2,
+              status: 'pending'
+            }
+          })
+
+          // Place participants in their new positions
+          updatedParticipants.forEach(({ participant, seed }) => {
+            const matchIndex = Math.floor((seed - 1) / 2)
+            const position = (seed - 1) % 2 + 1
+            const targetMatch = firstRound.matches[matchIndex]
+
+            const participantData = {
+              id: participant.id,
+              name: participant.participantName,
+              participantName: participant.participantName,
+              seed: seed
+            }
+
+            if (position === 1) {
+              targetMatch.participant1 = participantData
+            } else {
+              targetMatch.participant2 = participantData
+            }
+          })
+
+          onBracketUpdated(updatedBracket)
+        }
+      }
+
+      // Refresh tournament data to show updated seeds
+      const response = await fetch(`/api/tournaments/${tournament.id}`)
+      const result = await response.json()
+
+      if (result.success) {
+        const transformedTournament = {
+          ...result.tournament,
+          participants: (result.tournament.participants || []).map(p => ({
+            ...p,
+            participantName: p.participant_name || p.participantName,
+            participant_name: p.participant_name || p.participantName
+          }))
+        }
+        onTournamentUpdated(transformedTournament)
+      }
+
+      setActionStatus({
+        type: 'success',
+        message: `Successfully randomized ${activeParticipants.length} participant${activeParticipants.length === 1 ? '' : 's'}!`
       })
     } catch (error) {
       console.error('Failed to randomize positions:', error)
@@ -1351,6 +1814,100 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
       setSearchResults([])
     } finally {
       setIsSearching(false)
+    }
+  }
+
+  const handleSearchTeams = async (query) => {
+    if (!query.trim()) {
+      setTeamSearchResults([])
+      return
+    }
+
+    setIsSearchingTeams(true)
+    try {
+      const response = await fetch(`/api/user-teams?search=${encodeURIComponent(query)}`)
+      if (response.ok) {
+        const results = await response.json()
+        setTeamSearchResults(results.teams || [])
+      }
+    } catch (error) {
+      console.error('Failed to search teams:', error)
+      setTeamSearchResults([])
+    } finally {
+      setIsSearchingTeams(false)
+    }
+  }
+
+  const handleTeamSelection = async (team) => {
+    const requiredTeamSize = tournament?.team_size || 5
+
+    // Clear any previous modal errors
+    setModalError(null)
+
+    // Validate team size
+    if (team.member_count < requiredTeamSize) {
+      setModalError(`Team "${team.name}" has only ${team.member_count} member${team.member_count !== 1 ? 's' : ''}, but this tournament requires ${requiredTeamSize} members per team.`)
+      return
+    }
+
+    if (team.member_count === requiredTeamSize) {
+      // Team has exactly the right size, register directly
+      await registerTeamDirectly(team)
+    } else {
+      // Team has more members than required, show roster selection
+      setSelectedTeamForRoster(team)
+      setSelectedRoster([])
+      setModalError(null)
+      setShowRosterSelection(true)
+      setShowAddModal(false)
+    }
+  }
+
+  const registerTeamDirectly = async (team) => {
+    setIsRegisteringTeam(true)
+    setModalError(null)
+
+    try {
+      const response = await fetch(`/api/tournaments/${tournament.id}/register-team`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          user_team_id: team.id,
+          roster_assignments: team.members.map(member => ({
+            participant_name: member.display_name || member.user?.display_name || member.user?.username,
+            user_id: member.user_id,
+            email: member.email || member.user?.email,
+            receives_match_access: member.role === 'captain'
+          }))
+        })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        setActionStatus({
+          type: 'success',
+          message: `Team "${team.name}" has been registered successfully!`
+        })
+        setTimeout(() => setActionStatus(null), 3000)
+        setShowAddModal(false)
+        setTeamSearchQuery('')
+        setTeamSearchResults([])
+        setModalError(null)
+
+        // Refresh tournament data
+        if (onTournamentUpdated) {
+          onTournamentUpdated()
+        }
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to register team')
+      }
+    } catch (error) {
+      console.error('Failed to register team:', error)
+      setModalError(`Failed to register team: ${error.message}`)
+    } finally {
+      setIsRegisteringTeam(false)
     }
   }
 
@@ -1440,7 +1997,7 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
                 )}
                 <Button onClick={() => setShowAddModal(true)} size="sm">
                   <UserPlus className="h-4 w-4 mr-2" />
-                  Add Participant
+                  {isTeamTournament ? 'Add Team' : 'Add Participant'}
                 </Button>
               </div>
             )}
@@ -1456,14 +2013,14 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
                   className="flex items-center space-x-3 p-3 rounded-lg border bg-card group"
                 >
                   <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
-                    <span className="text-sm font-medium">{bracketPosition?.seed || '?'}</span>
+                    <span className="text-sm font-medium">{participant.display_order || '?'}</span>
                   </div>
                   <div className="flex-1">
                     <div className="font-medium">{participant.participantName}</div>
-                    {bracketPosition ? (
+                    {participant.seed ? (
                       <Badge variant="secondary" className="text-xs">
                         <Target className="h-3 w-3 mr-1" />
-                        Seed {bracketPosition.seed}
+                        Seed {participant.seed}
                       </Badge>
                     ) : (
                       <Badge variant="outline" className="text-xs">
@@ -1510,13 +2067,13 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {eliminatedParticipants.map((participant) => (
+              {eliminatedParticipants.map((participant, index) => (
                 <div
                   key={participant.id}
                   className="flex items-center space-x-3 p-3 rounded-lg border bg-muted/50 opacity-60 group"
                 >
                   <div className="w-8 h-8 bg-muted rounded-full flex items-center justify-center">
-                    <span className="text-sm">{participant.seed}</span>
+                    <span className="text-sm">{participant.display_order || '?'}</span>
                   </div>
                   <div className="flex-1">
                     <div className="font-medium">{participant.participantName}</div>
@@ -1533,122 +2090,380 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
 
       {/* Add Participant Modal */}
       {showAddModal && (
-        <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
+        <Dialog open={showAddModal} onOpenChange={(open) => {
+          setShowAddModal(open)
+          if (!open) {
+            setModalError(null)
+            setTeamSearchQuery('')
+            setTeamSearchResults([])
+          }
+        }}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Add Participant</DialogTitle>
+              <DialogTitle>
+                {isTeamTournament ? 'Add Team' : 'Add Participant'}
+              </DialogTitle>
               <DialogDescription>
-                Search for existing users or add a manual participant
+                {isTeamTournament
+                  ? 'Search for existing teams to add to this tournament'
+                  : 'Search for existing users or add a manual participant'
+                }
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4">
-              {/* Mode Selection */}
-              <div className="flex space-x-2">
-                <Button
-                  variant={addMode === 'search' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setAddMode('search')}
-                >
-                  <Search className="h-4 w-4 mr-2" />
-                  Search Users
-                </Button>
-                <Button
-                  variant={addMode === 'manual' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setAddMode('manual')}
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Manual Entry
-                </Button>
-              </div>
+              {/* Modal Error Message */}
+              {modalError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <div className="flex items-center space-x-2">
+                    <AlertCircle className="h-4 w-4 text-red-600" />
+                    <div className="text-sm font-medium text-red-800">Error</div>
+                  </div>
+                  <div className="text-sm text-red-700 mt-1">{modalError}</div>
+                </div>
+              )}
 
-              {addMode === 'search' && (
+              {isTeamTournament ? (
+                // Team search for team tournaments
                 <div className="space-y-3">
                   <div>
-                    <Label htmlFor="userSearch">Search Users</Label>
+                    <Label htmlFor="teamSearch">Search Teams</Label>
                     <Input
-                      id="userSearch"
-                      placeholder="Type username or email..."
-                      value={searchQuery}
+                      id="teamSearch"
+                      placeholder="Type team name..."
+                      value={teamSearchQuery}
                       onChange={(e) => {
-                        setSearchQuery(e.target.value)
-                        handleSearchUsers(e.target.value)
+                        setTeamSearchQuery(e.target.value)
+                        handleSearchTeams(e.target.value)
                       }}
                     />
                   </div>
 
-                  {isSearching && (
+                  {isSearchingTeams && (
                     <div className="text-center py-2">
-                      <div className="text-sm text-muted-foreground">Searching...</div>
+                      <div className="text-sm text-muted-foreground">Searching teams...</div>
                     </div>
                   )}
 
-                  {searchResults.length > 0 && (
+                  {teamSearchResults.length > 0 && (
                     <div className="space-y-2 max-h-48 overflow-y-auto">
-                      {searchResults.map((user) => (
-                        <div
-                          key={user.id}
-                          className="flex items-center justify-between p-2 border rounded-lg hover:bg-muted/50 cursor-pointer"
-                          onClick={() => handleAddParticipant({ 
-                            name: user.display_name || user.username,
-                            userId: user.id,
-                            participantName: user.display_name || user.username
-                          })}
-                        >
-                          <div className="flex items-center space-x-2">
+                      {teamSearchResults.map((team) => {
+                        const requiredTeamSize = tournament?.team_size || 5
+                        const hasEnoughMembers = team.member_count >= requiredTeamSize
+                        const isEligible = hasEnoughMembers
+
+                        return (
+                          <div
+                            key={team.id}
+                            className={`flex items-center space-x-3 p-3 border rounded-lg transition-colors ${
+                              isEligible
+                                ? 'hover:bg-muted/50 cursor-pointer'
+                                : 'bg-muted/20 cursor-not-allowed opacity-60'
+                            }`}
+                            onClick={() => isEligible && handleTeamSelection(team)}
+                          >
                             <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
-                              <User className="h-4 w-4" />
+                              <Users className="h-4 w-4" />
                             </div>
-                            <div>
-                              <div className="font-medium">{user.display_name || user.username}</div>
-                              <div className="text-xs text-muted-foreground">{user.email}</div>
+                            <div className="flex-1">
+                              <div className={`font-medium ${!isEligible ? 'line-through' : ''}`}>
+                                {team.name}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {team.member_count} member{team.member_count !== 1 ? 's' : ''} • Captain: {team.captain?.display_name || team.captain?.username}
+                              </div>
+                              {!hasEnoughMembers && (
+                                <div className="text-xs text-red-600 mt-1">
+                                  Needs {requiredTeamSize - team.member_count} more member{(requiredTeamSize - team.member_count) !== 1 ? 's' : ''}
+                                </div>
+                              )}
                             </div>
+                            {isEligible && (
+                              <div className="text-xs text-muted-foreground">
+                                Click to select
+                              </div>
+                            )}
                           </div>
-                          <Button size="sm" variant="ghost">
-                            <Plus className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
 
-                  {searchQuery && !isSearching && searchResults.length === 0 && (
+                  {teamSearchQuery && !isSearchingTeams && teamSearchResults.length === 0 && (
                     <div className="text-center py-4">
-                      <div className="text-sm text-muted-foreground">No users found</div>
+                      <div className="text-sm text-muted-foreground">No teams found</div>
                     </div>
                   )}
                 </div>
-              )}
-
-              {addMode === 'manual' && (
-                <div className="space-y-3">
-                  <div>
-                    <Label htmlFor="manualName">Participant Name</Label>
-                    <Input
-                      id="manualName"
-                      placeholder="Enter participant name..."
-                      value={manualName}
-                      onChange={(e) => setManualName(e.target.value)}
-                    />
+              ) : (
+                // Individual participant search for individual tournaments
+                <>
+                  {/* Mode Selection */}
+                  <div className="flex space-x-2">
+                    <Button
+                      variant={addMode === 'search' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setAddMode('search')}
+                    >
+                      <Search className="h-4 w-4 mr-2" />
+                      Search Users
+                    </Button>
+                    <Button
+                      variant={addMode === 'manual' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setAddMode('manual')}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Manual Entry
+                    </Button>
                   </div>
-                  <Button 
-                    className="w-full"
-                    disabled={!manualName.trim()}
-                    onClick={() => handleAddParticipant({ 
-                      participantName: manualName.trim(),
-                      userId: null
-                    })}
-                  >
-                    <UserPlus className="h-4 w-4 mr-2" />
-                    Add Participant
-                  </Button>
-                </div>
+
+                  {addMode === 'search' && (
+                    <div className="space-y-3">
+                      <div>
+                        <Label htmlFor="userSearch">Search Users</Label>
+                        <Input
+                          id="userSearch"
+                          placeholder="Type username or email..."
+                          value={searchQuery}
+                          onChange={(e) => {
+                            setSearchQuery(e.target.value)
+                            handleSearchUsers(e.target.value)
+                          }}
+                        />
+                      </div>
+
+                      {isSearching && (
+                        <div className="text-center py-2">
+                          <div className="text-sm text-muted-foreground">Searching...</div>
+                        </div>
+                      )}
+
+                      {searchResults.length > 0 && (
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {searchResults.map((user) => (
+                            <div
+                              key={user.id}
+                              className="flex items-center justify-between p-2 border rounded-lg hover:bg-muted/50 cursor-pointer"
+                              onClick={() => handleAddParticipant({
+                                name: user.display_name || user.username,
+                                userId: user.id,
+                                participantName: user.display_name || user.username
+                              })}
+                            >
+                              <div className="flex items-center space-x-2">
+                                <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
+                                  <User className="h-4 w-4" />
+                                </div>
+                                <div>
+                                  <div className="font-medium">{user.display_name || user.username}</div>
+                                  <div className="text-xs text-muted-foreground">{user.email}</div>
+                                </div>
+                              </div>
+                              <Button size="sm" variant="ghost">
+                                <Plus className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {searchQuery && !isSearching && searchResults.length === 0 && (
+                        <div className="text-center py-4">
+                          <div className="text-sm text-muted-foreground">No users found</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {addMode === 'manual' && (
+                    <div className="space-y-3">
+                      <div>
+                        <Label htmlFor="manualName">Participant Name</Label>
+                        <Input
+                          id="manualName"
+                          placeholder="Enter participant name..."
+                          value={manualName}
+                          onChange={(e) => setManualName(e.target.value)}
+                        />
+                      </div>
+                      <Button
+                        className="w-full"
+                        disabled={!manualName.trim()}
+                        onClick={() => handleAddParticipant({
+                          participantName: manualName.trim(),
+                          userId: null
+                        })}
+                      >
+                        <UserPlus className="h-4 w-4 mr-2" />
+                        Add Participant
+                      </Button>
+                    </div>
+                  )}
+                </>
               )}
 
               <div className="flex justify-end space-x-2 pt-4 border-t">
                 <Button variant="outline" onClick={() => setShowAddModal(false)}>
                   Cancel
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Roster Selection Modal for teams with more members than required */}
+      {showRosterSelection && selectedTeamForRoster && (
+        <Dialog open={showRosterSelection} onOpenChange={setShowRosterSelection}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Select Tournament Roster</DialogTitle>
+              <DialogDescription>
+                Team "{selectedTeamForRoster.name}" has {selectedTeamForRoster.member_count} members, but this tournament requires exactly {tournament?.team_size || 5} members.
+                Please select {tournament?.team_size || 5} members for the tournament roster.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {/* Modal Error Message for Roster Selection */}
+              {modalError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <div className="flex items-center space-x-2">
+                    <AlertCircle className="h-4 w-4 text-red-600" />
+                    <div className="text-sm font-medium text-red-800">Error</div>
+                  </div>
+                  <div className="text-sm text-red-700 mt-1">{modalError}</div>
+                </div>
+              )}
+
+              <div className="text-sm font-medium">
+                Selected: {selectedRoster.length} / {tournament?.team_size || 5}
+              </div>
+
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {selectedTeamForRoster.members?.map((member) => {
+                  const isSelected = selectedRoster.some(m => m.id === member.id)
+                  const isDisabled = !isSelected && selectedRoster.length >= (tournament?.team_size || 5)
+
+                  return (
+                    <div
+                      key={member.id}
+                      className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
+                        isSelected
+                          ? 'bg-primary/10 border-primary'
+                          : isDisabled
+                            ? 'bg-muted/50 cursor-not-allowed opacity-50'
+                            : 'hover:bg-muted/50'
+                      }`}
+                      onClick={() => {
+                        if (isDisabled) return
+
+                        if (isSelected) {
+                          setSelectedRoster(prev => prev.filter(m => m.id !== member.id))
+                        } else {
+                          setSelectedRoster(prev => [...prev, member])
+                        }
+                      }}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
+                          {member.role === 'captain' ? (
+                            <Crown className="h-4 w-4 text-yellow-600" />
+                          ) : (
+                            <User className="h-4 w-4" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="font-medium">
+                            {member.display_name || member.user?.display_name || member.user?.username}
+                            {member.role === 'captain' && <span className="text-yellow-600 ml-1">(Captain)</span>}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {member.email || member.user?.email || 'No email'}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center">
+                        {isSelected && <CheckCircle className="h-5 w-5 text-primary" />}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-4 border-t">
+                <Button variant="outline" onClick={() => {
+                  setShowRosterSelection(false)
+                  setSelectedTeamForRoster(null)
+                  setSelectedRoster([])
+                  setModalError(null)
+                  setShowAddModal(true)
+                }}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={async () => {
+                    if (selectedRoster.length === (tournament?.team_size || 5)) {
+                      setIsRegisteringTeam(true)
+                      setActionStatus(null)
+
+                      try {
+                        const response = await fetch(`/api/tournaments/${tournament.id}/register-team`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          credentials: 'include',
+                          body: JSON.stringify({
+                            user_team_id: selectedTeamForRoster.id,
+                            roster_assignments: selectedRoster.map(member => ({
+                              participant_name: member.display_name || member.user?.display_name || member.user?.username,
+                              user_id: member.user_id,
+                              email: member.email || member.user?.email,
+                              receives_match_access: member.role === 'captain'
+                            }))
+                          })
+                        })
+
+                        if (response.ok) {
+                          setActionStatus({
+                            type: 'success',
+                            message: `Team "${selectedTeamForRoster.name}" has been registered successfully!`
+                          })
+                          setTimeout(() => setActionStatus(null), 3000)
+                          setShowRosterSelection(false)
+                          setSelectedTeamForRoster(null)
+                          setSelectedRoster([])
+                          setTeamSearchQuery('')
+                          setTeamSearchResults([])
+
+                          if (onTournamentUpdated) {
+                            onTournamentUpdated()
+                          }
+                        } else {
+                          const errorData = await response.json()
+                          throw new Error(errorData.error || 'Failed to register team')
+                        }
+                      } catch (error) {
+                        console.error('Failed to register team:', error)
+                        setModalError(`Failed to register team: ${error.message}`)
+                      } finally {
+                        setIsRegisteringTeam(false)
+                      }
+                    }
+                  }}
+                  disabled={selectedRoster.length !== (tournament?.team_size || 5) || isRegisteringTeam}
+                >
+                  {isRegisteringTeam ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Registering...
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus className="h-4 w-4 mr-2" />
+                      Register Team
+                    </>
+                  )}
                 </Button>
               </div>
             </div>
@@ -1941,7 +2756,10 @@ function ParticipantsList({ participants, tournament, isAdmin, onParticipantAdde
 }
 
 function MatchesList({ bracket, tournament }) {
-  if (!bracket || !bracket.rounds) {
+  // Handle both old structure (bracket.rounds) and new structure (bracket.upper/lower)
+  const hasMatches = bracket && (bracket.rounds || bracket.upper || bracket.lower || bracket.winnerBracket || bracket.loserBracket);
+
+  if (!hasMatches) {
     return (
       <Card>
         <CardContent className="text-center py-12">
@@ -1952,6 +2770,330 @@ function MatchesList({ bracket, tournament }) {
     )
   }
 
+  // For double elimination with original bracket structure
+  if (tournament.format === 'double_elimination' && (bracket.winnerBracket || bracket.loserBracket)) {
+    // Extract winner bracket matches
+    const winnerMatches = [];
+    if (bracket.winnerBracket?.rounds) {
+      bracket.winnerBracket.rounds.forEach(round => {
+        round.matches.forEach(match => {
+          winnerMatches.push({ ...match, round: round.roundNumber });
+        });
+      });
+    }
+
+    // Extract loser bracket matches
+    const loserMatches = [];
+    if (bracket.loserBracket) {
+      bracket.loserBracket.forEach(round => {
+        round.matches.forEach(match => {
+          loserMatches.push({ ...match, round: round.roundNumber });
+        });
+      });
+    }
+
+    // Add grand finals if it exists
+    const grandFinalMatches = [];
+    if (bracket.grandFinals) {
+      grandFinalMatches.push(bracket.grandFinals);
+    }
+
+    // Add better match titles and organize chronologically
+    const [showChronological, setShowChronological] = useState(false);
+
+    // Enhance match titles with round information
+    const enhanceMatchTitle = (match, bracketType, roundNumber) => {
+      let title = `Match ${match.matchNumber}`;
+
+      if (bracketType === 'winner') {
+        if (roundNumber === 1) {
+          title = `WB Round 1 - Match ${match.matchNumber}`;
+        } else if (roundNumber === 2 && winnerMatches.filter(m => m.round === 2).length === 1) {
+          title = `WB Final`;
+        } else {
+          title = `WB Round ${roundNumber} - Match ${match.matchNumber}`;
+        }
+      } else if (bracketType === 'loser') {
+        if (roundNumber === 1) {
+          title = `LB Round 1 - Match ${match.matchNumber}`;
+        } else if (roundNumber === loserMatches.length && loserMatches.filter(m => m.round === roundNumber).length === 1) {
+          title = `LB Final`;
+        } else {
+          title = `LB Round ${roundNumber} - Match ${match.matchNumber}`;
+        }
+      } else if (bracketType === 'grand_final') {
+        title = `Grand Finals`;
+      }
+
+      return { ...match, enhancedTitle: title };
+    };
+
+    // Enhance all matches
+    const enhancedWinnerMatches = winnerMatches.map(match =>
+      enhanceMatchTitle(match, 'winner', match.round)
+    );
+    const enhancedLoserMatches = loserMatches.map(match =>
+      enhanceMatchTitle(match, 'loser', match.round)
+    );
+    const enhancedGrandFinalMatches = grandFinalMatches.map(match =>
+      enhanceMatchTitle(match, 'grand_final', 1)
+    );
+
+    // Create chronological order
+    const chronologicalMatches = [];
+    if (showChronological) {
+      // Round 1: All WB Round 1 matches
+      enhancedWinnerMatches.filter(m => m.round === 1).forEach(match => {
+        chronologicalMatches.push({ ...match, section: 'Round 1 (Winner Bracket)' });
+      });
+
+      // Round 2: LB Round 1 + WB Round 2
+      enhancedLoserMatches.filter(m => m.round === 1).forEach(match => {
+        chronologicalMatches.push({ ...match, section: 'Round 2 (Loser Bracket)' });
+      });
+      enhancedWinnerMatches.filter(m => m.round === 2).forEach(match => {
+        chronologicalMatches.push({ ...match, section: 'Round 2 (Winner Bracket)' });
+      });
+
+      // Round 3+: Remaining LB rounds
+      for (let round = 2; round <= Math.max(...enhancedLoserMatches.map(m => m.round)); round++) {
+        enhancedLoserMatches.filter(m => m.round === round).forEach(match => {
+          chronologicalMatches.push({ ...match, section: `Round ${round + 1} (Loser Bracket Final)` });
+        });
+      }
+
+      // Final: Grand Finals
+      enhancedGrandFinalMatches.forEach(match => {
+        chronologicalMatches.push({ ...match, section: 'Grand Finals' });
+      });
+    }
+
+    return (
+      <div className="space-y-6">
+        {/* View Toggle */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Tournament Matches</CardTitle>
+              <div className="flex items-center space-x-2">
+                <label className="text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    checked={showChronological}
+                    onChange={(e) => setShowChronological(e.target.checked)}
+                    className="mr-2"
+                  />
+                  Show in play order
+                </label>
+              </div>
+            </div>
+          </CardHeader>
+        </Card>
+
+        {showChronological ? (
+          /* Chronological View */
+          <div className="space-y-6">
+            {Object.entries(
+              chronologicalMatches.reduce((acc, match) => {
+                if (!acc[match.section]) acc[match.section] = [];
+                acc[match.section].push(match);
+                return acc;
+              }, {})
+            ).map(([section, matches]) => (
+              <Card key={section}>
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Clock className="h-5 w-5 text-blue-500" />
+                    <span>{section}</span>
+                  </CardTitle>
+                  <CardDescription>
+                    {matches.length} match{matches.length !== 1 ? 'es' : ''}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {matches.map((match, index) => (
+                      <MatchCard
+                        key={match.id || `chrono-${section}-${index}`}
+                        match={{ ...match, displayTitle: match.enhancedTitle }}
+                      />
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          /* Bracket View */
+          <div className="space-y-6">
+            {/* Winner Bracket */}
+            {enhancedWinnerMatches.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Trophy className="h-5 w-5 text-yellow-500" />
+                    <span>Winner Bracket</span>
+                  </CardTitle>
+                  <CardDescription>
+                    {enhancedWinnerMatches.length} match{enhancedWinnerMatches.length !== 1 ? 'es' : ''}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {enhancedWinnerMatches.map((match, index) => (
+                      <MatchCard
+                        key={match.id || `winner-${index}`}
+                        match={{ ...match, displayTitle: match.enhancedTitle }}
+                      />
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Loser Bracket */}
+            {enhancedLoserMatches.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Trophy className="h-5 w-5 text-orange-500" />
+                    <span>Loser Bracket</span>
+                  </CardTitle>
+                  <CardDescription>
+                    {enhancedLoserMatches.length} match{enhancedLoserMatches.length !== 1 ? 'es' : ''}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {enhancedLoserMatches.map((match, index) => (
+                      <MatchCard
+                        key={match.id || `loser-${index}`}
+                        match={{ ...match, displayTitle: match.enhancedTitle }}
+                      />
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Grand Finals */}
+            {enhancedGrandFinalMatches.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Trophy className="h-5 w-5 text-purple-500" />
+                    <span>Grand Finals</span>
+                  </CardTitle>
+                  <CardDescription>
+                    1 match
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {enhancedGrandFinalMatches.map((match, index) => (
+                      <MatchCard
+                        key={match.id || `grand-final-${index}`}
+                        match={{ ...match, displayTitle: match.enhancedTitle }}
+                      />
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Group matches by bracket type for double elimination (old structure)
+  const groupedMatches = {};
+  if (tournament.format === 'double_elimination' && bracket.rounds) {
+    bracket.rounds.forEach(round => {
+      round.matches.forEach(match => {
+        const bracketType = match.bracket_type || 'winner';
+        if (!groupedMatches[bracketType]) {
+          groupedMatches[bracketType] = [];
+        }
+        groupedMatches[bracketType].push({ ...match, round: round });
+      });
+    });
+  }
+
+  // For double elimination, show matches grouped by bracket
+  if (tournament.format === 'double_elimination' && Object.keys(groupedMatches).length > 0) {
+    return (
+      <div className="space-y-6">
+        {/* Winner Bracket */}
+        {groupedMatches.winner && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Trophy className="h-5 w-5 text-yellow-500" />
+                <span>Winner Bracket</span>
+              </CardTitle>
+              <CardDescription>
+                {groupedMatches.winner.length} match{groupedMatches.winner.length !== 1 ? 'es' : ''}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {groupedMatches.winner.map((match) => (
+                  <MatchCard key={match.id} match={match} />
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Loser Bracket */}
+        {groupedMatches.loser && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Trophy className="h-5 w-5 text-orange-500" />
+                <span>Loser Bracket</span>
+              </CardTitle>
+              <CardDescription>
+                {groupedMatches.loser.length} match{groupedMatches.loser.length !== 1 ? 'es' : ''}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {groupedMatches.loser.map((match) => (
+                  <MatchCard key={match.id} match={match} />
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Grand Finals */}
+        {groupedMatches.grand_final && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Trophy className="h-5 w-5 text-purple-500" />
+                <span>Grand Finals</span>
+              </CardTitle>
+              <CardDescription>
+                Championship match
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {groupedMatches.grand_final.map((match) => (
+                  <MatchCard key={match.id} match={match} />
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    )
+  }
+
+  // Single elimination - show by rounds
   return (
     <div className="space-y-6">
       {bracket.rounds.map((round) => (
@@ -1965,40 +3107,43 @@ function MatchesList({ bracket, tournament }) {
           <CardContent>
             <div className="space-y-3">
               {round.matches.map((match) => (
-                <div
-                  key={match.id || `${round.roundNumber}-${match.matchNumber}`}
-                  className="flex items-center justify-between p-4 border rounded-lg"
-                >
-                  <div className="flex-1">
-                    <div className="font-medium mb-1">
-                      Match {match.matchNumber}
-                    </div>
-                    <div className="text-sm space-y-1">
-                      <div className={match.winner === match.participant1?.id ? 'font-bold' : ''}>
-                        {match.participant1?.participantName || 'TBD'}
-                      </div>
-                      <div className={match.winner === match.participant2?.id ? 'font-bold' : ''}>
-                        {match.participant2?.participantName || 'TBD'}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {(match.score || match.participant1_score !== null || match.participant2_score !== null) && (
-                    <div className="text-right font-mono">
-                      <div>{match.participant1_score ?? match.score?.[match.participant1?.id] ?? '0'}</div>
-                      <div>{match.participant2_score ?? match.score?.[match.participant2?.id] ?? '0'}</div>
-                    </div>
-                  )}
-                  
-                  <div className="ml-4">
-                    <StatusBadge status={match.status} />
-                  </div>
-                </div>
+                <MatchCard key={match.id || `${round.roundNumber}-${match.matchNumber}`} match={match} />
               ))}
             </div>
           </CardContent>
         </Card>
       ))}
+    </div>
+  )
+}
+
+function MatchCard({ match }) {
+  return (
+    <div className="flex items-center justify-between p-4 border rounded-lg">
+      <div className="flex-1">
+        <div className="font-medium mb-1">
+          {match.displayTitle || match.enhancedTitle || `Match ${match.matchNumber}`}
+        </div>
+        <div className="text-sm space-y-1">
+          <div className={match.winner === match.participant1?.id ? 'font-bold' : ''}>
+            {match.participant1?.participantName || match.participant1?.participant_name || 'TBD'}
+          </div>
+          <div className={match.winner === match.participant2?.id ? 'font-bold' : ''}>
+            {match.participant2?.participantName || match.participant2?.participant_name || 'TBD'}
+          </div>
+        </div>
+      </div>
+
+      {(match.score || match.participant1_score !== null || match.participant2_score !== null) && (
+        <div className="text-right font-mono">
+          <div>{match.participant1_score ?? match.score?.[match.participant1?.id] ?? '0'}</div>
+          <div>{match.participant2_score ?? match.score?.[match.participant2?.id] ?? '0'}</div>
+        </div>
+      )}
+
+      <div className="ml-4">
+        <StatusBadge status={match.status} />
+      </div>
     </div>
   )
 }

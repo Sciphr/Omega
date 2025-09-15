@@ -8,7 +8,7 @@ export async function POST(request, { params }) {
     const supabase = await createClient()
     const serviceSupabase = createServiceClient()
     const { id: matchId } = await params
-    const { participant1_score, participant2_score, notes, action_type } = await request.json()
+    const { participant1_score, participant2_score, notes, action_type, score_data, game_number } = await request.json()
 
     console.log('Score submission API called:', { matchId, participant1_score, participant2_score, notes, action_type })
 
@@ -109,17 +109,25 @@ export async function POST(request, { params }) {
     console.log('Score submitted by participant:', participantId)
 
     // Create score submission
+    const submissionData = {
+      match_id: matchId,
+      submitted_by: participantId,
+      participant1_score: parseInt(participant1_score),
+      participant2_score: parseInt(participant2_score),
+      status: 'pending',
+      submission_type: game_number ? 'game_result' : 'initial',
+      notes: notes || null
+    }
+
+    // Add Best of X specific data
+    if (score_data) {
+      submissionData.score_data = score_data
+      submissionData.game_number = game_number || null
+    }
+
     const { data: scoreSubmission, error: submissionError } = await serviceSupabase
       .from('score_submissions')
-      .insert({
-        match_id: matchId,
-        submitted_by: participantId,
-        participant1_score: parseInt(participant1_score),
-        participant2_score: parseInt(participant2_score),
-        status: 'pending',
-        submission_type: 'initial',
-        notes: notes || null
-      })
+      .insert(submissionData)
       .select()
       .single()
 

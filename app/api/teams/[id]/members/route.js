@@ -3,6 +3,108 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
+// Get team members
+export async function GET(request, { params }) {
+  try {
+    const { id } = await params;
+
+    if (!id) {
+      return NextResponse.json({ error: 'Team ID is required' }, { status: 400 });
+    }
+
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader) {
+      return NextResponse.json({ error: 'No authorization header' }, { status: 401 });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+
+    // Create client with user token for authentication
+    const supabase = createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    });
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      console.error('Auth error:', authError);
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    }
+
+    // Get team with members
+    const { data: team, error: teamError } = await supabase
+      .from('user_teams')
+      .select(`
+        id,
+        name,
+        captain_id,
+        captain:users!user_teams_captain_id_fkey(id, username, display_name)
+      `)
+      .eq('id', id)
+      .single();
+
+    if (teamError) {
+      console.error('Error fetching team:', teamError);
+      if (teamError.code === 'PGRST116') {
+        return NextResponse.json({ error: 'Team not found' }, { status: 404 });
+      }
+      return NextResponse.json({ error: 'Failed to fetch team' }, { status: 500 });
+    }
+
+    // Get team members
+    const { data: members, error: membersError } = await supabase
+      .from('team_members')
+      .select(`
+        id,
+        user_id,
+        display_name,
+        email,
+        role,
+        is_registered,
+        joined_at,
+        user:users(id, username, display_name, email)
+      `)
+      .eq('team_id', id)
+      .order('joined_at', { ascending: true });
+
+    if (membersError) {
+      console.error('Error fetching members:', membersError);
+      return NextResponse.json({ error: 'Failed to fetch team members' }, { status: 500 });
+    }
+
+    // Include captain as a member
+    const allMembers = [
+      {
+        id: `captain-${team.captain_id}`,
+        user_id: team.captain_id,
+        display_name: team.captain.display_name || team.captain.username,
+        email: null,
+        role: 'captain',
+        is_registered: true,
+        joined_at: null,
+        user: team.captain
+      },
+      ...members
+    ];
+
+    return NextResponse.json({
+      team: {
+        ...team,
+        members: allMembers,
+        member_count: allMembers.length
+      }
+    });
+
+  } catch (error) {
+    console.error('API Error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
 // Add a member to a team
 export async function POST(request, { params }) {
   try {

@@ -1,4 +1,0 @@
--- Add score columns to matches table
-ALTER TABLE matches ADD COLUMN IF NOT EXISTS participant1_score INTEGER DEFAULT 0;
-ALTER TABLE matches ADD COLUMN IF NOT EXISTS participant2_score INTEGER DEFAULT 0;
-ALTER TABLE matches ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP WITH TIME ZONE;

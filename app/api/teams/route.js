@@ -1,172 +1,283 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase-server'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-
-export async function GET(request) {
+// Create a new team
+export async function POST(request) {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json({ error: 'No authorization header' }, { status: 401 });
-    }
+    const supabase = await createClient()
+    const { name, members } = await request.json()
 
-    const token = authHeader.replace('Bearer ', '');
-    
-    // Create client with user token for authentication
-    const supabase = createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
-      global: {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      }
-    });
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    // Get current user (team captain)
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      console.error('Auth error:', authError);
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+      return NextResponse.json({
+        success: false,
+        error: 'Authentication required to create teams'
+      }, { status: 401 })
     }
 
-    // Get teams user leads (try user_teams first, fallback to tournament teams)
-    let { data: ledTeams, error: ledError } = await supabase
+    // Validate team name
+    if (!name || name.trim().length < 3) {
+      return NextResponse.json({
+        success: false,
+        error: 'Team name must be at least 3 characters long'
+      }, { status: 400 })
+    }
+
+    // Check if team name already exists for this user
+    const { data: existingTeam } = await supabase
+      .from('teams')
+      .select('name')
+      .eq('captain_id', user.id)
+      .eq('name', name.trim())
+      .single()
+
+    if (existingTeam) {
+      return NextResponse.json({
+        success: false,
+        error: 'You already have a team with this name'
+      }, { status: 400 })
+    }
+
+    // Ensure user profile exists in users table
+    const { data: existingUser } = await supabase
+      .from('users')
+      .select('id, username')
+      .eq('id', user.id)
+      .single()
+
+    if (!existingUser) {
+      // Create user profile if it doesn't exist
+      const baseUsername = user.user_metadata?.username || user.email.split('@')[0]
+      let username = baseUsername
+      let attempts = 0
+
+      // Try to find a unique username
+      while (attempts < 10) {
+        const { data: existingUsername } = await supabase
+          .from('users')
+          .select('username')
+          .eq('username', username)
+          .single()
+
+        if (!existingUsername) {
+          break // Username is available
+        }
+
+        attempts++
+        username = `${baseUsername}${attempts}`
+      }
+
+      const { error: userError } = await supabase
+        .from('users')
+        .insert({
+          id: user.id,
+          email: user.email,
+          username: username,
+          display_name: user.user_metadata?.display_name || user.user_metadata?.username || user.email.split('@')[0],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+
+      if (userError) {
+        console.error('Error creating user profile:', userError)
+        return NextResponse.json({
+          success: false,
+          error: 'Failed to create user profile'
+        }, { status: 500 })
+      }
+    }
+
+    // Create team with captain as first member
+    const teamMembers = [user.id]
+    if (members && Array.isArray(members)) {
+      // Add additional members (validate they exist)
+      for (const memberId of members) {
+        if (memberId !== user.id && !teamMembers.includes(memberId)) {
+          const { data: memberExists } = await supabase
+            .from('users')
+            .select('id')
+            .eq('id', memberId)
+            .single()
+
+          if (memberExists) {
+            teamMembers.push(memberId)
+          }
+        }
+      }
+    }
+
+    const { data: team, error: teamError } = await supabase
+      .from('user_teams')
+      .insert({
+        name: name.trim(),
+        captain_id: user.id
+      })
+      .select(`
+        id,
+        name,
+        captain_id,
+        created_at,
+        captain:users!user_teams_captain_id_fkey(id, username, display_name)
+      `)
+      .single()
+
+    if (teamError) {
+      console.error('Error creating team:', teamError)
+      return NextResponse.json({
+        success: false,
+        error: 'Failed to create team: ' + teamError.message
+      }, { status: 500 })
+    }
+
+    // Add team members to team_members table (excluding captain who is already in the team)
+    if (members && Array.isArray(members) && members.length > 0) {
+      const memberInserts = members
+        .filter(memberId => memberId !== user.id) // Exclude captain
+        .map(memberId => ({
+          team_id: team.id,
+          user_id: memberId,
+          role: 'member'
+        }))
+
+      if (memberInserts.length > 0) {
+        const { error: memberError } = await supabase
+          .from('team_members')
+          .insert(memberInserts)
+
+        if (memberError) {
+          console.error('Error adding team members:', memberError)
+          // Don't fail the whole operation, just log the error
+        }
+      }
+    }
+
+    // Get all team members including captain
+    const { data: allMembers } = await supabase
+      .from('team_members')
+      .select(`
+        id,
+        user_id,
+        role,
+        user:users(id, username, display_name)
+      `)
+      .eq('team_id', team.id)
+
+    // Include captain in member list
+    const memberDetails = [
+      {
+        id: `captain-${team.captain_id}`,
+        user_id: team.captain_id,
+        role: 'captain',
+        user: team.captain
+      },
+      ...(allMembers || [])
+    ]
+
+    return NextResponse.json({
+      success: true,
+      team: {
+        ...team,
+        member_details: memberDetails
+      }
+    })
+
+  } catch (error) {
+    console.error('Team creation error:', error)
+    return NextResponse.json({
+      success: false,
+      error: 'Internal server error'
+    }, { status: 500 })
+  }
+}
+
+// Get teams for current user
+export async function GET(request) {
+  try {
+    const supabase = await createClient()
+    const { searchParams } = new URL(request.url)
+    const includeAll = searchParams.get('include') === 'all'
+
+    // Get current user
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json({
+        success: false,
+        error: 'Authentication required'
+      }, { status: 401 })
+    }
+
+    let query = supabase
       .from('user_teams')
       .select(`
         id,
         name,
-        game,
-        max_members,
-        is_public,
         captain_id,
         created_at,
-        updated_at
+        updated_at,
+        captain:users!user_teams_captain_id_fkey(id, username, display_name)
       `)
-      .eq('captain_id', user.id)
-      .order('created_at', { ascending: false });
-    
-    // If user_teams doesn't exist, try tournament teams
-    if (ledError && (ledError.code === '42P01' || ledError.code === 'PGRST205')) {
-      ({ data: ledTeams, error: ledError } = await supabase
-        .from('teams')
+
+    if (!includeAll) {
+      // Get teams where user is captain or member
+      query = query.or(`captain_id.eq.${user.id}`)
+      // TODO: Add member check using team_members table join
+    }
+
+    query = query.order('created_at', { ascending: false })
+
+    const { data: teams, error: teamsError } = await query
+
+    if (teamsError) {
+      console.error('Error fetching teams:', teamsError)
+      return NextResponse.json({
+        success: false,
+        error: 'Failed to fetch teams'
+      }, { status: 500 })
+    }
+
+    // Get member details for each team
+    const teamsWithMembers = await Promise.all(teams.map(async (team) => {
+      // Get team members from team_members table
+      const { data: teamMembers } = await supabase
+        .from('team_members')
         .select(`
           id,
-          name,
-          tag,
-          tournament_id,
-          captain_id,
-          captain_name,
-          roster,
-          seed,
-          status,
-          created_at,
-          updated_at
+          user_id,
+          role,
+          user:users(id, username, display_name)
         `)
-        .eq('captain_id', user.id)
-        .order('created_at', { ascending: false }));
-    }
+        .eq('team_id', team.id)
 
-    if (ledError) {
-      console.error('Error fetching led teams:', ledError);
-      // If table doesn't exist or relationship missing or column missing, return empty array
-      if (ledError.code === '42P01' || ledError.code === 'PGRST200' || ledError.code === '42703') {
-        console.log('Teams table does not exist, relationship missing, or column missing, returning empty arrays');
-        return NextResponse.json({ ledTeams: [], memberTeams: [] });
+      // Include captain in member list
+      const memberDetails = [
+        {
+          id: `captain-${team.captain_id}`,
+          user_id: team.captain_id,
+          role: 'captain',
+          user: team.captain
+        },
+        ...(teamMembers || [])
+      ]
+
+      return {
+        ...team,
+        member_details: memberDetails
       }
-      return NextResponse.json({ error: 'Failed to fetch led teams' }, { status: 500 });
-    }
-
-    // Get teams user is a member of (but not leader) - skip if team_members table doesn't exist
-    let memberTeams = [];
-
-    // Format the member teams data (empty since team_members table doesn't exist)
-    const formattedMemberTeams = [];
-
-    // Add user role to led teams
-    const formattedLedTeams = ledTeams?.map(t => ({
-      ...t,
-      user_role: 'leader'
-    })) || [];
+    }))
 
     return NextResponse.json({
-      ledTeams: formattedLedTeams,
-      memberTeams: formattedMemberTeams
-    });
+      success: true,
+      teams: teamsWithMembers
+    })
+
   } catch (error) {
-    console.error('API Error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
-
-export async function POST(request) {
-  try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json({ error: 'No authorization header' }, { status: 401 });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    
-    // Create client with user token for authentication
-    const supabase = createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
-      global: {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      }
-    });
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      console.error('Auth error:', authError);
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-    }
-
-    const body = await request.json();
-    const { name, game, max_members = 5, is_public = false } = body;
-
-    if (!name || !game) {
-      return NextResponse.json({ error: 'name and game are required' }, { status: 400 });
-    }
-
-    // Create new team
-    const { data: team, error: teamError } = await supabase
-      .from('user_teams')
-      .insert({
-        name,
-        game,
-        max_members,
-        is_public,
-        captain_id: user.id
-      })
-      .select()
-      .single();
-
-    if (teamError) {
-      console.error('Error creating team:', teamError);
-      return NextResponse.json({ error: 'Failed to create team' }, { status: 500 });
-    }
-
-    // Add creator as team member with leader role
-    const { error: memberError } = await supabase
-      .from('team_members')
-      .insert({
-        team_id: team.id,
-        user_id: user.id,
-        role: 'leader',
-        is_registered: true
-      });
-
-    if (memberError) {
-      console.error('Error adding leader to team members:', memberError);
-      // If we can't add the leader as a member, delete the team to maintain consistency
-      await supabase.from('user_teams').delete().eq('id', team.id);
-      return NextResponse.json({ error: 'Failed to create team membership' }, { status: 500 });
-    }
-
-    return NextResponse.json({ team }, { status: 201 });
-  } catch (error) {
-    console.error('API Error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('Get teams error:', error)
+    return NextResponse.json({
+      success: false,
+      error: 'Internal server error'
+    }, { status: 500 })
   }
 }

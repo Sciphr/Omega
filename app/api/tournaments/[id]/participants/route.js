@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase-server'
+import { createClient, createServiceClient } from '@/lib/supabase-server'
 
 export async function POST(request, { params }) {
   try {
@@ -58,24 +58,48 @@ export async function POST(request, { params }) {
       }
     }
 
-    // Prepare participant data based on constraint: either user_id OR team_id must be non-null
+    // Get the next display_order for this tournament
+    const { data: maxOrderResult } = await supabase
+      .from('participants')
+      .select('display_order')
+      .eq('tournament_id', tournamentId)
+      .order('display_order', { ascending: false })
+      .limit(1)
+      .single()
+
+    const nextDisplayOrder = (maxOrderResult?.display_order) ? maxOrderResult.display_order + 1 : 1
+
+    // Handle user_id requirement (constraint requires either user_id OR team_id to be non-null)
+    let finalUserId = userId
+
+    if (!finalUserId) {
+      // Create a temporary/guest user record using service client to bypass RLS
+      const serviceClient = createServiceClient()
+      const { data: guestUser, error: guestError } = await serviceClient
+        .from('users')
+        .insert({
+          username: `guest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          email: `guest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}@temp.local`,
+          display_name: participantName.trim(),
+          is_verified: false
+        })
+        .select()
+        .single()
+
+      if (guestError) throw guestError
+      finalUserId = guestUser.id
+    }
+
+    // Prepare participant data
     const participantData = {
       tournament_id: tournamentId,
       participant_name: participantName.trim(),
       participant_type: 'individual',
       seed: seed || null,
-      status: 'active'
-    }
-
-    if (userId) {
-      // Registered user
-      participantData.user_id = userId
-      participantData.team_id = null
-    } else {
-      // Manual participant - both user_id and team_id can be null with the new constraint
-      participantData.user_id = null
-      participantData.team_id = null
-      participantData.participant_type = 'manual'
+      status: 'active',
+      display_order: nextDisplayOrder,
+      user_id: finalUserId,
+      team_id: null
     }
 
     // Add participant

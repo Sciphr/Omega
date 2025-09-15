@@ -7,7 +7,11 @@
       "WebFetch(domain:www.npmjs.com)",
       "Bash(del:*)",
       "Bash(sed:*)",
-      "Read(//f/CODING/**)"
+      "Read(//f/CODING/**)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(npm run dev:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

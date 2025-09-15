@@ -89,16 +89,31 @@ export async function GET(request, { params }) {
 
     const userData = await userResponse.json()
 
+    // Format Discord username properly
+    let displayUsername;
+    if (platform === 'discord') {
+      // Discord API returns username and discriminator
+      if (userData.discriminator && userData.discriminator !== '0') {
+        // Old format: username#discriminator
+        displayUsername = `${userData.username}#${userData.discriminator}`;
+      } else {
+        // New format: just username (or global_name if available)
+        displayUsername = userData.global_name || userData.username;
+      }
+    } else {
+      displayUsername = userData.username || userData.gameName || userData.global_name;
+    }
+
     // Store linked account
     const linkedAccountData = {
       user_id: session.user_id,
       platform,
       platform_user_id: userData.id || userData.puuid,
-      platform_username: userData.username || userData.gameName || userData.global_name,
+      platform_username: displayUsername,
       platform_data: userData,
       access_token: tokenData.access_token,
       refresh_token: tokenData.refresh_token,
-      token_expires_at: tokenData.expires_in ? 
+      token_expires_at: tokenData.expires_in ?
         new Date(Date.now() + tokenData.expires_in * 1000).toISOString() : null,
       verified: true
     }
