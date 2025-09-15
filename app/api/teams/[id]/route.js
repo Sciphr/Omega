@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@/lib/supabase-server';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -85,7 +86,7 @@ export async function GET(request, { params }) {
         const userIds = registeredMembers.map(m => m.user_id);
 
         // Use service client for user lookup to bypass RLS
-        const serviceSupabase = createClient(supabaseUrl, process.env.SUPABASE_SERVICE_ROLE_KEY);
+        const serviceSupabase = createSupabaseClient(supabaseUrl, process.env.SUPABASE_SERVICE_ROLE_KEY);
         const { data: users, error: usersError } = await serviceSupabase
           .from('users')
           .select('id, display_name, username, email')
@@ -155,7 +156,7 @@ export async function GET(request, { params }) {
     // Get captain name
     let captainName = 'Unknown';
     if (team?.captain_id) {
-      const serviceSupabase = createClient(supabaseUrl, process.env.SUPABASE_SERVICE_ROLE_KEY);
+      const serviceSupabase = createSupabaseClient(supabaseUrl, process.env.SUPABASE_SERVICE_ROLE_KEY);
       const { data: captain } = await serviceSupabase
         .from('users')
         .select('display_name, username')
