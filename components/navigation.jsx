@@ -214,7 +214,7 @@ export function Footer() {
               </li>
               <li>
                 <Link
-                  href="/features"
+                  href="/tournaments"
                   className="text-muted-foreground hover:text-foreground"
                 >
                   Features
@@ -257,28 +257,19 @@ export function Footer() {
             <h3 className="font-semibold">Support</h3>
             <ul className="space-y-2 text-sm">
               <li>
-                <Link
-                  href="/help"
-                  className="text-muted-foreground hover:text-foreground"
-                >
+                <span className="text-muted-foreground">
                   Help Center
-                </Link>
+                </span>
               </li>
               <li>
-                <Link
-                  href="/contact"
-                  className="text-muted-foreground hover:text-foreground"
-                >
+                <span className="text-muted-foreground">
                   Contact
-                </Link>
+                </span>
               </li>
               <li>
-                <Link
-                  href="/feedback"
-                  className="text-muted-foreground hover:text-foreground"
-                >
+                <span className="text-muted-foreground">
                   Feedback
-                </Link>
+                </span>
               </li>
             </ul>
           </div>
@@ -287,20 +278,14 @@ export function Footer() {
             <h3 className="font-semibold">Legal</h3>
             <ul className="space-y-2 text-sm">
               <li>
-                <Link
-                  href="/privacy"
-                  className="text-muted-foreground hover:text-foreground"
-                >
+                <span className="text-muted-foreground">
                   Privacy
-                </Link>
+                </span>
               </li>
               <li>
-                <Link
-                  href="/terms"
-                  className="text-muted-foreground hover:text-foreground"
-                >
+                <span className="text-muted-foreground">
                   Terms
-                </Link>
+                </span>
               </li>
             </ul>
           </div>

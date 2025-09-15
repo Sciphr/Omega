@@ -149,6 +149,46 @@ export async function GET(request, { params }) {
       tournament_name: result.tournament?.name || 'Unknown Tournament'
     })) || []
 
+    // Get current user for team privacy check
+    const { data: { user: currentUser } } = await supabase.auth.getUser()
+
+    // Fetch team memberships - show public teams + private teams if viewing own profile
+    let teamQuery = supabase
+      .from('team_members')
+      .select(`
+        id,
+        role,
+        joined_at,
+        team:user_teams!inner(
+          id,
+          name,
+          game,
+          is_public,
+          captain_id,
+          created_at
+        )
+      `)
+      .eq('user_id', playerId)
+      .order('joined_at', { ascending: false })
+
+    // If viewing someone else's profile, only show public teams
+    if (!currentUser || currentUser.id !== playerId) {
+      teamQuery = teamQuery.eq('team.is_public', true)
+    }
+
+    const { data: teamMemberships } = await teamQuery
+
+    // Format team memberships
+    const formattedTeams = teamMemberships?.map(membership => ({
+      id: membership.team.id,
+      name: membership.team.name,
+      game: membership.team.game,
+      role: membership.role,
+      is_captain: membership.team.captain_id === playerId,
+      joined_at: membership.joined_at,
+      team_created_at: membership.team.created_at
+    })) || []
+
     // Construct response
     const playerData = {
       id: player.id,
@@ -161,7 +201,8 @@ export async function GET(request, { params }) {
       game_profiles: gameProfiles || [],
       stats: primaryStats,
       all_stats: playerStats || [],
-      tournament_results: formattedResults
+      tournament_results: formattedResults,
+      teams: formattedTeams
     }
 
     return NextResponse.json({

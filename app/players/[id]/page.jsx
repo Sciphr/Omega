@@ -295,6 +295,60 @@ export default function PlayerProfilePage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Teams */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                Teams
+              </CardTitle>
+              <CardDescription>
+                Teams this player is a member of
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {player.teams && player.teams.length > 0 ? (
+                <div className="space-y-3">
+                  {player.teams.map((team) => (
+                    <Link key={team.id} href={`/teams/${team.id}`} className="block">
+                      <div className="flex items-center justify-between p-3 border rounded-lg hover:shadow-md transition-shadow cursor-pointer hover:border-primary/20">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                            <Users className="h-5 w-5 text-primary" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-primary hover:underline">
+                                {team.name}
+                              </span>
+                              {team.is_captain && (
+                                <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">
+                                  <Crown className="h-3 w-3 mr-1" />
+                                  Captain
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="text-sm text-muted-foreground">
+                              {team.game} • Joined {new Date(team.joined_at).toLocaleDateString()}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          {team.role}
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Users className="mx-auto h-8 w-8 mb-2" />
+                  <p>Not a member of any public teams</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         {/* Sidebar */}

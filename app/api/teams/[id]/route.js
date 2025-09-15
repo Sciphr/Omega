@@ -11,8 +11,9 @@ export async function GET(request, { params }) {
       return NextResponse.json({ error: 'Team ID is required' }, { status: 400 });
     }
 
-    // Create public client for reading team data (teams can be viewed publicly)
-    const supabase = createClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+    // Get current user (if any)
+    const supabase = await createClient()
+    const { data: { user: currentUser } } = await supabase.auth.getUser()
 
     // Get team details with members
     const { data: team, error } = await supabase
@@ -31,6 +32,36 @@ export async function GET(request, { params }) {
       `)
       .eq('id', id)
       .single();
+
+    if (error) {
+      console.error('Error fetching team:', error)
+      return NextResponse.json({
+        success: false,
+        error: 'Team not found'
+      }, { status: 404 })
+    }
+
+    // Check access permissions
+    if (!team.is_public) {
+      // For private teams, user must be logged in and be a team member
+      if (!currentUser) {
+        return NextResponse.json({
+          success: false,
+          error: 'Team not found'
+        }, { status: 404 })
+      }
+
+      // Check if user is a team member or captain
+      const isMember = team.team_members?.some(member => member.user_id === currentUser.id) ||
+                      team.captain_id === currentUser.id
+
+      if (!isMember) {
+        return NextResponse.json({
+          success: false,
+          error: 'Team not found'
+        }, { status: 404 })
+      }
+    }
 
     if (team && team.team_members) {
       // Check if captain is already in team members
