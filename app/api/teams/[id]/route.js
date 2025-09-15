@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { injectDemoTeamStats } from '@/lib/demo-stats';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -187,9 +188,12 @@ export async function GET(request, { params }) {
       return NextResponse.json({ error: 'Failed to fetch team' }, { status: 500 });
     }
 
+    // Inject demo stats for analytics demonstration
+    const teamWithAnalytics = injectDemoTeamStats(team, team.game)
+
     return NextResponse.json({
       success: true,
-      team
+      team: teamWithAnalytics
     });
   } catch (error) {
     console.error('API Error:', error);

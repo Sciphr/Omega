@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
+import { injectDemoPlayerStats } from '@/lib/demo-stats'
 
 // Get player profile by ID with game profiles, stats, and tournament history
 export async function GET(request, { params }) {
@@ -205,9 +206,12 @@ export async function GET(request, { params }) {
       teams: formattedTeams
     }
 
+    // Inject demo stats for analytics demonstration
+    const playerWithAnalytics = injectDemoPlayerStats(playerData, currentGame)
+
     return NextResponse.json({
       success: true,
-      player: playerData
+      player: playerWithAnalytics
     })
 
   } catch (error) {

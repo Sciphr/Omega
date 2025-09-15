@@ -503,6 +503,8 @@ function TournamentsTab({ tournaments, loading }) {
 
 function GamesTab({ games, loading, refetchGames }) {
   const [isAddingGame, setIsAddingGame] = useState(false)
+  const [editingGame, setEditingGame] = useState(null)
+  const [deletingGame, setDeletingGame] = useState(null)
 
   if (loading) {
     return <GamesSkeleton />
@@ -540,7 +542,12 @@ function GamesTab({ games, loading, refetchGames }) {
           {games?.length > 0 ? (
             <div className="grid gap-4">
               {games.map((game) => (
-                <GameCard key={game.id} game={game} />
+                <GameCard
+                  key={game.id}
+                  game={game}
+                  onEdit={() => setEditingGame(game)}
+                  onDelete={() => setDeletingGame(game)}
+                />
               ))}
             </div>
           ) : (
@@ -552,8 +559,81 @@ function GamesTab({ games, loading, refetchGames }) {
           )}
         </CardContent>
       </Card>
+
+      {/* Edit Game Modal */}
+      <Dialog open={!!editingGame} onOpenChange={() => setEditingGame(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Game Profile</DialogTitle>
+            <DialogDescription>
+              Update your game profile information
+            </DialogDescription>
+          </DialogHeader>
+          {editingGame && (
+            <EditGameForm
+              game={editingGame}
+              onClose={() => setEditingGame(null)}
+              onSuccess={() => {
+                refetchGames()
+                setEditingGame(null)
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Game Confirmation Modal */}
+      <Dialog open={!!deletingGame} onOpenChange={() => setDeletingGame(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Game Profile</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete your {deletingGame && getGameDisplayName(deletingGame.gameId)} profile? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end space-x-2 mt-4">
+            <Button variant="outline" onClick={() => setDeletingGame(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => handleDeleteGame(deletingGame?.id)}
+            >
+              Delete Profile
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
+
+  async function handleDeleteGame(gameId) {
+    if (!gameId) return
+
+    try {
+      const { session } = useAuthStore.getState()
+
+      const response = await fetch(`/api/user/games?id=${gameId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        refetchGames()
+        setDeletingGame(null)
+      } else {
+        console.error('Failed to delete game profile:', result.error)
+        alert('Failed to delete game profile')
+      }
+    } catch (error) {
+      console.error('Error deleting game profile:', error)
+      alert('Failed to delete game profile')
+    }
+  }
 }
 
 function TeamsTab({ teams, loading }) {
@@ -679,7 +759,7 @@ function TournamentCard({ tournament }) {
   )
 }
 
-function GameCard({ game }) {
+function GameCard({ game, onEdit, onDelete }) {
   const gameTemplate = Object.values(GAME_TEMPLATES).find(g => g.id === game.gameId)
   
   return (
@@ -697,10 +777,10 @@ function GameCard({ game }) {
         </div>
       </div>
       <div className="flex space-x-2">
-        <Button variant="outline" size="sm">
+        <Button variant="outline" size="sm" onClick={onEdit}>
           <Edit3 className="h-4 w-4" />
         </Button>
-        <Button variant="outline" size="sm">
+        <Button variant="outline" size="sm" onClick={onDelete}>
           <Trash2 className="h-4 w-4" />
         </Button>
       </div>
@@ -748,7 +828,6 @@ function AddGameForm({ onClose, onSuccess }) {
   const [selectedGame, setSelectedGame] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [rank, setRank] = useState('')
-  const [notes, setNotes] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const handleSubmit = async (e) => {
@@ -772,8 +851,7 @@ function AddGameForm({ onClose, onSuccess }) {
         body: JSON.stringify({
           game_id: selectedGame,
           display_name: displayName,
-          rank: rank || null,
-          notes: notes || null
+          rank: rank || null
         })
       })
 
@@ -832,19 +910,91 @@ function AddGameForm({ onClose, onSuccess }) {
         />
       </div>
       
-      <div>
-        <Label htmlFor="notes">Notes (Optional)</Label>
-        <Input
-          id="notes"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Additional notes"
-        />
-      </div>
       
       <div className="flex space-x-2">
         <Button type="submit" disabled={!selectedGame || !displayName || isSubmitting}>
           {isSubmitting ? 'Adding...' : 'Add Game'}
+        </Button>
+        <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+function EditGameForm({ game, onClose, onSuccess }) {
+  const [displayName, setDisplayName] = useState(game.displayName || '')
+  const [rank, setRank] = useState(game.rank || '')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setIsSubmitting(true)
+
+    try {
+      const { session } = useAuthStore.getState()
+      if (!session?.access_token) {
+        console.error('No auth token available')
+        return
+      }
+
+      const response = await fetch('/api/user/games', {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          id: game.id,
+          display_name: displayName,
+          rank: rank || null
+        })
+      })
+
+      if (response.ok) {
+        onSuccess?.()
+        onClose()
+      } else {
+        const errorData = await response.json()
+        console.error('Failed to update game:', errorData.error)
+        alert('Failed to update game: ' + errorData.error)
+      }
+    } catch (error) {
+      console.error('Error updating game:', error)
+      alert('Failed to update game. Please try again.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <Label htmlFor="editDisplayName">Display Name</Label>
+        <Input
+          id="editDisplayName"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          placeholder="Your in-game name"
+          required
+        />
+      </div>
+
+      <div>
+        <Label htmlFor="editRank">Rank (Optional)</Label>
+        <Input
+          id="editRank"
+          value={rank}
+          onChange={(e) => setRank(e.target.value)}
+          placeholder="Your current rank"
+        />
+      </div>
+
+
+      <div className="flex space-x-2">
+        <Button type="submit" disabled={!displayName || isSubmitting}>
+          {isSubmitting ? 'Updating...' : 'Update Game'}
         </Button>
         <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
           Cancel

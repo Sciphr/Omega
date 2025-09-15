@@ -9,6 +9,7 @@ import { Separator } from '@/components/ui/separator'
 import { Trophy, Users, Crown, Calendar, Activity, Target, TrendingUp, Star } from 'lucide-react'
 import Link from 'next/link'
 import { getGameDisplayName } from '@/lib/game-utils'
+import { TeamAnalytics } from '@/components/analytics/team-analytics'
 
 export default function TeamDetailPage() {
   const params = useParams()
@@ -175,6 +176,8 @@ export default function TeamDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Content */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Team Analytics */}
+          <TeamAnalytics team={team} />
           {/* Team Members */}
           <Card>
             <CardHeader>

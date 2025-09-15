@@ -77,7 +77,7 @@ export async function POST(request) {
     }
 
     const body = await request.json();
-    const { game_id, display_name, rank, notes } = body;
+    const { game_id, display_name, rank } = body;
 
     if (!game_id || !display_name) {
       return NextResponse.json({ error: 'game_id and display_name are required' }, { status: 400 });
@@ -102,8 +102,7 @@ export async function POST(request) {
         user_id: user.id,
         game_id,
         display_name,
-        rank,
-        notes
+        rank
       })
       .select()
       .single();
@@ -146,7 +145,7 @@ export async function PUT(request) {
     }
 
     const body = await request.json();
-    const { id, display_name, rank, notes } = body;
+    const { id, display_name, rank } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Profile ID is required' }, { status: 400 });
@@ -158,7 +157,6 @@ export async function PUT(request) {
       .update({
         display_name,
         rank,
-        notes,
         updated_at: new Date().toISOString()
       })
       .eq('id', id)

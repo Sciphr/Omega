@@ -9,6 +9,7 @@ import { Separator } from '@/components/ui/separator'
 import { Trophy, Users, Crown, Calendar, Activity, Target, TrendingUp, Star, Gamepad2 } from 'lucide-react'
 import Link from 'next/link'
 import { getGameDisplayName } from '@/lib/game-utils'
+import { AdvancedStats } from '@/components/analytics/advanced-stats'
 
 export default function PlayerProfilePage() {
   const params = useParams()
@@ -207,6 +208,11 @@ export default function PlayerProfilePage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Content */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Advanced Analytics */}
+          <AdvancedStats
+            gameId={gameId || player.current_game || 'default'}
+            playerStats={player.advanced_stats || player.stats}
+          />
           {/* Game Profiles */}
           <Card>
             <CardHeader>
