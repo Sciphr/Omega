@@ -37,6 +37,7 @@ import {
   AlertCircle
 } from 'lucide-react'
 import { GAME_TEMPLATES, TOURNAMENT_STATUS } from '@/lib/types'
+import { getGameDisplayName } from '@/lib/game-utils'
 import { TournamentsSkeleton, GamesSkeleton, TeamsSkeleton, LinkedAccountsSkeleton } from '@/components/profile-skeletons'
 import { Skeleton } from '@/components/ui/skeleton'
 import { supabase } from '@/lib/supabase'
@@ -688,7 +689,7 @@ function GameCard({ game }) {
           <Gamepad2 className="h-5 w-5 text-primary" />
         </div>
         <div>
-          <h3 className="font-semibold">{gameTemplate?.name || game.gameId}</h3>
+          <h3 className="font-semibold">{getGameDisplayName(game.gameId)}</h3>
           <div className="flex items-center space-x-4 text-sm text-muted-foreground">
             <span>Display Name: {game.displayName}</span>
             {game.rank && <Badge variant="outline">{game.rank}</Badge>}
@@ -727,7 +728,7 @@ function TeamCard({ team }) {
             )}
           </div>
           <div className="flex items-center space-x-4 text-sm text-muted-foreground">
-            <span>{gameTemplate?.name || team.game}</span>
+            <span>{getGameDisplayName(team.game)}</span>
             <span>{team.members} members</span>
             <span>Created {new Date(team.created_at).toLocaleDateString()}</span>
           </div>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Search, Filter, Trophy, Users, Star, Calendar } from 'lucide-react'
+import { getGameDisplayName } from '@/lib/game-utils'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -221,7 +222,7 @@ export default function TeamsDiscoveryPage() {
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <CardTitle className="text-lg mb-1">{team.name}</CardTitle>
-                        <p className="text-sm text-muted-foreground mb-2">{team.game}</p>
+                        <p className="text-sm text-muted-foreground mb-2">{getGameDisplayName(team.game)}</p>
                         <p className="text-sm text-muted-foreground">
                           Captain: {team.captain_name || 'Unknown'}
                         </p>

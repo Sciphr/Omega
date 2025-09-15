@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Trophy, Users, Crown, Calendar, Activity, Target, TrendingUp, Star, Gamepad2 } from 'lucide-react'
 import Link from 'next/link'
+import { getGameDisplayName } from '@/lib/game-utils'
 
 export default function PlayerProfilePage() {
   const params = useParams()
@@ -226,7 +227,7 @@ export default function PlayerProfilePage() {
                         <Gamepad2 className="h-5 w-5 text-primary" />
                       </div>
                       <div>
-                        <div className="font-medium">{profile.game_id}</div>
+                        <div className="font-medium">{getGameDisplayName(profile.game_id)}</div>
                         <div className="text-sm text-muted-foreground">
                           {profile.display_name}
                         </div>
@@ -330,7 +331,7 @@ export default function PlayerProfilePage() {
                               )}
                             </div>
                             <div className="text-sm text-muted-foreground">
-                              {team.game} • Joined {new Date(team.joined_at).toLocaleDateString()}
+                              {getGameDisplayName(team.game)} • Joined {new Date(team.joined_at).toLocaleDateString()}
                             </div>
                           </div>
                         </div>

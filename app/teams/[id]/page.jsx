@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Trophy, Users, Crown, Calendar, Activity, Target, TrendingUp, Star } from 'lucide-react'
 import Link from 'next/link'
+import { getGameDisplayName } from '@/lib/game-utils'
 
 export default function TeamDetailPage() {
   const params = useParams()
@@ -152,7 +153,7 @@ export default function TeamDetailPage() {
           <div>
             <h1 className="text-3xl font-bold mb-2">{team.name}</h1>
             <div className="flex items-center gap-4 text-muted-foreground">
-              <span>{team.game}</span>
+              <span>{getGameDisplayName(team.game)}</span>
               <span>•</span>
               <span>Created {new Date(team.created_at).toLocaleDateString()}</span>
               {team.stats?.last_active && (
@@ -381,7 +382,7 @@ export default function TeamDetailPage() {
 
               <div>
                 <div className="text-sm text-muted-foreground mb-1">Game</div>
-                <div className="font-medium">{team.game}</div>
+                <div className="font-medium">{getGameDisplayName(team.game)}</div>
               </div>
 
               <div>

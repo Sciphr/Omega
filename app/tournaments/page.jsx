@@ -34,6 +34,7 @@ import {
   Eye
 } from 'lucide-react'
 import { GAME_TEMPLATES, TOURNAMENT_STATUS, TOURNAMENT_FORMAT } from '@/lib/types'
+import { getGameDisplayName } from '@/lib/game-utils'
 
 function TournamentsContent() {
   const searchParams = useSearchParams()
@@ -267,7 +268,7 @@ export default function TournamentsPage() {
 
 function TournamentCard({ tournament }) {
   const [showStandings, setShowStandings] = useState(false)
-  const gameTemplate = Object.values(GAME_TEMPLATES).find(g => g.id === tournament.game)
+  // Use utility function for consistent game name display
   
   const getStatusBadge = (status) => {
     switch (status) {
@@ -298,7 +299,7 @@ function TournamentCard({ tournament }) {
         <div className="flex items-start justify-between">
           <div className="flex items-center space-x-2">
             <Gamepad2 className="h-5 w-5 text-primary" />
-            <Badge variant="outline">{gameTemplate?.name || tournament.game}</Badge>
+            <Badge variant="outline">{getGameDisplayName(tournament.game)}</Badge>
           </div>
           <div className="flex items-center space-x-2">
             {tournament.password_hash && (
