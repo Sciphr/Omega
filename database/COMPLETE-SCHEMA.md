@@ -26,15 +26,16 @@ Primary user profiles extending Supabase Auth
 ```sql
 users (
   id UUID PRIMARY KEY,           -- Supabase auth.users.id
-  email VARCHAR(255) UNIQUE,     -- User email
   username VARCHAR(50) UNIQUE,   -- Unique username
+  email VARCHAR(255) UNIQUE,     -- User email
+  password_hash VARCHAR(255),    -- Password hash (nullable)
   display_name VARCHAR(100),     -- Display name
   avatar_url TEXT,               -- Profile picture URL
+  game_rankings JSONB DEFAULT '{}', -- Game-specific rankings
+  is_verified BOOLEAN DEFAULT false, -- Email verification status
   created_at TIMESTAMPTZ,        -- Account creation
   updated_at TIMESTAMPTZ,        -- Last profile update
-  is_verified BOOLEAN,           -- Email verification status
-  bio TEXT,                      -- User biography
-  timezone VARCHAR(50)           -- User timezone
+  achievement_points INTEGER DEFAULT 0 -- Achievement system points
 )
 ```
 
@@ -46,8 +47,7 @@ user_game_profiles (
   user_id UUID → users(id),
   game_id VARCHAR(100),          -- Game identifier (league_of_legends, etc.)
   display_name VARCHAR(100),     -- In-game name
-  rank VARCHAR(50),              -- Current rank/tier
-  notes TEXT,                    -- Additional profile notes
+  rank VARCHAR(50),              -- Current rank/tier (nullable)
   created_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ,
   UNIQUE(user_id, game_id)

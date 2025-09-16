@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { BracketVisualization } from '@/components/bracket-visualization'
+import { RoundRobinVisualization } from '@/components/round-robin-visualization'
 import { 
   Trophy, 
   Users, 
@@ -45,6 +46,7 @@ import {
 import { GAME_TEMPLATES, TOURNAMENT_STATUS, TOURNAMENT_FORMAT, COMPLETION_REASON } from '@/lib/types'
 import { BracketGenerator } from '@/lib/bracket-utils'
 import { supabase } from '@/lib/supabase'
+import { TournamentBanner } from '@/components/ui/tournament-image'
 
 // Mock tournament data - replace with actual API call
 const mockTournament = {
@@ -167,6 +169,13 @@ export default function TournamentPage() {
             let generatedBracket
             if (result.tournament.format === 'double_elimination') {
               generatedBracket = BracketGenerator.generateDoubleElimination(result.tournament.participants)
+            } else if (result.tournament.format === 'round_robin') {
+              const roundRobinOptions = {
+                type: result.tournament.round_robin_type || 'single',
+                groupCount: result.tournament.group_count,
+                groupCreationMethod: result.tournament.group_creation_method
+              }
+              generatedBracket = await BracketGenerator.generateRoundRobinBracket(result.tournament.participants, roundRobinOptions)
             } else {
               generatedBracket = BracketGenerator.generateSingleElimination(result.tournament.participants)
             }
@@ -205,6 +214,13 @@ export default function TournamentPage() {
             let generatedBracket
             if (result.tournament.format === 'double_elimination') {
               generatedBracket = BracketGenerator.generateDoubleElimination(bracketParticipants)
+            } else if (result.tournament.format === 'round_robin') {
+              const roundRobinOptions = {
+                type: result.tournament.round_robin_type || 'single',
+                groupCount: result.tournament.group_count,
+                groupCreationMethod: result.tournament.group_creation_method
+              }
+              generatedBracket = await BracketGenerator.generateRoundRobinBracket(bracketParticipants, roundRobinOptions)
             } else {
               generatedBracket = BracketGenerator.generateSingleElimination(bracketParticipants)
             }
@@ -528,6 +544,37 @@ export default function TournamentPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Tournament Banner */}
+      <div className="relative">
+        <TournamentBanner
+          tournament={tournament}
+          className="w-full h-64 object-cover"
+        >
+          {/* Banner Overlay Content */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+          <div className="absolute bottom-0 left-0 right-0 p-6">
+            <div className="container mx-auto">
+              <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">
+                {tournament.name}
+              </h1>
+              <div className="flex flex-wrap items-center gap-3 text-white/90">
+                <Badge variant="secondary" className="bg-white/20 text-white border-0">
+                  {gameTemplate?.name || tournament.game}
+                </Badge>
+                <div className="flex items-center gap-1">
+                  <Users className="h-4 w-4" />
+                  <span className="text-sm">{tournament.participants?.length || 0}/{tournament.max_participants}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Trophy className="h-4 w-4" />
+                  <span className="text-sm capitalize">{tournament.format}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </TournamentBanner>
+      </div>
+
       <div className="container mx-auto px-4 py-8">
         {/* Notification */}
         {notification && (
@@ -872,19 +919,34 @@ export default function TournamentPage() {
               </CardHeader>
               <CardContent>
                 {bracket ? (
-                  <BracketVisualization
-                    bracket={bracket}
-                    tournament={tournament}
-                    onMatchClick={handleMatchClick}
-                    onReportScore={handleReportScore}
-                    currentUser={currentUser}
-                    isAdmin={isCreator}
-                  />
+                  tournament?.format === 'round_robin' ? (
+                    <RoundRobinVisualization
+                      tournament={tournament}
+                      matches={tournament?.matches || []}
+                      participants={tournament?.participants || []}
+                      onMatchClick={handleMatchClick}
+                      onReportScore={handleReportScore}
+                      currentUser={currentUser}
+                      isAdmin={isCreator}
+                    />
+                  ) : (
+                    <BracketVisualization
+                      bracket={bracket}
+                      tournament={tournament}
+                      onMatchClick={handleMatchClick}
+                      onReportScore={handleReportScore}
+                      currentUser={currentUser}
+                      isAdmin={isCreator}
+                    />
+                  )
                 ) : (
                   <div className="text-center py-12">
                     <Trophy className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                     <p className="text-muted-foreground">
-                      Bracket will be generated once tournament starts
+                      {tournament?.format === 'round_robin'
+                        ? 'Round robin fixtures will be generated once tournament starts'
+                        : 'Bracket will be generated once tournament starts'
+                      }
                     </p>
                   </div>
                 )}

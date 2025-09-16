@@ -221,21 +221,78 @@ export async function GET(request) {
       `)
 
     if (!includeAll) {
-      // Get teams where user is captain or member
-      query = query.or(`captain_id.eq.${user.id}`)
-      // TODO: Add member check using team_members table join
-    }
+      // Get teams where user is captain
+      const { data: captainTeams, error: captainError } = await query.eq('captain_id', user.id)
 
-    query = query.order('created_at', { ascending: false })
+      if (captainError) {
+        console.error('Error fetching captain teams:', captainError)
+        return NextResponse.json({
+          success: false,
+          error: 'Failed to fetch teams'
+        }, { status: 500 })
+      }
 
-    const { data: teams, error: teamsError } = await query
+      // Get teams where user is a member
+      const { data: memberTeams, error: memberError } = await supabase
+        .from('team_members')
+        .select(`
+          team:user_teams!inner(
+            id,
+            name,
+            captain_id,
+            created_at,
+            updated_at,
+            captain:users!user_teams_captain_id_fkey(id, username, display_name)
+          )
+        `)
+        .eq('user_id', user.id)
 
-    if (teamsError) {
-      console.error('Error fetching teams:', teamsError)
-      return NextResponse.json({
-        success: false,
-        error: 'Failed to fetch teams'
-      }, { status: 500 })
+      if (memberError) {
+        console.error('Error fetching member teams:', memberError)
+        return NextResponse.json({
+          success: false,
+          error: 'Failed to fetch member teams'
+        }, { status: 500 })
+      }
+
+      // Combine captain teams and member teams, avoiding duplicates
+      const memberTeamData = memberTeams?.map(m => m.team) || []
+      const allTeamIds = new Set()
+      const combinedTeams = []
+
+      // Add captain teams first
+      for (const team of captainTeams || []) {
+        if (!allTeamIds.has(team.id)) {
+          allTeamIds.add(team.id)
+          combinedTeams.push(team)
+        }
+      }
+
+      // Add member teams
+      for (const team of memberTeamData) {
+        if (!allTeamIds.has(team.id)) {
+          allTeamIds.add(team.id)
+          combinedTeams.push(team)
+        }
+      }
+
+      // Sort by created_at descending
+      combinedTeams.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+
+      // Update teams variable to use combined results
+      var teams = combinedTeams
+    } else {
+      const { data: allTeams, error: teamsError } = await query
+
+      if (teamsError) {
+        console.error('Error fetching teams:', teamsError)
+        return NextResponse.json({
+          success: false,
+          error: 'Failed to fetch teams'
+        }, { status: 500 })
+      }
+
+      var teams = allTeams
     }
 
     // Get member details for each team

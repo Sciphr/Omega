@@ -35,6 +35,7 @@ import {
 } from 'lucide-react'
 import { GAME_TEMPLATES, TOURNAMENT_STATUS, TOURNAMENT_FORMAT } from '@/lib/types'
 import { getGameDisplayName } from '@/lib/game-utils'
+import { TournamentThumbnail } from '@/components/ui/tournament-image'
 
 function TournamentsContent() {
   const searchParams = useSearchParams()
@@ -118,12 +119,12 @@ function TournamentsContent() {
 
         {/* Filters */}
         <Card className="mb-8">
-          <CardContent className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="relative">
+          <CardContent className="p-4 sm:p-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="relative sm:col-span-2 lg:col-span-1">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                <Input 
-                  placeholder="Search tournaments..." 
+                <Input
+                  placeholder="Search tournaments..."
                   className="pl-9"
                   value={filters.search}
                   onChange={(e) => handleFilterChange('search', e.target.value)}
@@ -294,20 +295,29 @@ function TournamentCard({ tournament }) {
   }
 
   return (
-    <Card className="group hover:shadow-lg transition-all duration-200 border-2 hover:border-primary/50">
+    <Card className="group hover:shadow-lg transition-all duration-200 border-2 hover:border-primary/50 overflow-hidden">
+      <TournamentThumbnail
+        tournament={tournament}
+        className="h-32 group-hover:scale-105 transition-transform duration-300"
+        overlayContent={
+          <>
+            <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
+            <div className="absolute top-2 left-2 right-2 flex items-start justify-between">
+              <Badge variant="outline" className="bg-black/70 border-white/30 text-white text-xs">
+                {getGameDisplayName(tournament.game)}
+              </Badge>
+              <div className="flex items-center space-x-2">
+                {tournament.password_hash && (
+                  <Shield className="h-4 w-4 text-yellow-400" title="Password Protected" />
+                )}
+                {getStatusBadge(tournament.status)}
+              </div>
+            </div>
+          </>
+        }
+      />
+
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center space-x-2">
-            <Gamepad2 className="h-5 w-5 text-primary" />
-            <Badge variant="outline">{getGameDisplayName(tournament.game)}</Badge>
-          </div>
-          <div className="flex items-center space-x-2">
-            {tournament.password_hash && (
-              <Shield className="h-4 w-4 text-yellow-600" title="Password Protected" />
-            )}
-            {getStatusBadge(tournament.status)}
-          </div>
-        </div>
         
         <CardTitle className="text-lg group-hover:text-primary transition-colors">
           {tournament.name}

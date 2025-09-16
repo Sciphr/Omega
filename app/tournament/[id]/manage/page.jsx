@@ -13,7 +13,10 @@ import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
-import { 
+import { ImageUpload } from '@/components/ui/image-upload'
+import { TournamentThumbnail, TournamentBanner } from '@/components/ui/tournament-image'
+import { uploadTournamentImage, deleteTournamentImage } from '@/lib/storage'
+import {
   ArrowLeft,
   Settings,
   Plus,
@@ -29,7 +32,9 @@ import {
   X,
   Copy,
   ExternalLink,
-  Trophy
+  Trophy,
+  Image,
+  Upload
 } from 'lucide-react'
 
 export default function TournamentManagePage() {
@@ -42,6 +47,8 @@ export default function TournamentManagePage() {
   const [activeTab, setActiveTab] = useState('general')
   const [showAddPhaseModal, setShowAddPhaseModal] = useState(false)
   const [editingPhase, setEditingPhase] = useState(null)
+  const [uploadingThumbnail, setUploadingThumbnail] = useState(false)
+  const [uploadingBanner, setUploadingBanner] = useState(false)
 
   // New phase form data
   const [newPhase, setNewPhase] = useState({
@@ -188,7 +195,7 @@ export default function TournamentManagePage() {
       })
 
       const result = await response.json()
-      
+
       if (result.success) {
         setTournament(prev => ({ ...prev, ...updates }))
       } else {
@@ -196,6 +203,106 @@ export default function TournamentManagePage() {
       }
     } catch (error) {
       console.error('Failed to update tournament:', error)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleThumbnailUpload = async (file) => {
+    try {
+      setUploadingThumbnail(true)
+      const result = await uploadTournamentImage(file, tournament.id, 'thumbnail')
+
+      if (result.success) {
+        await handleTournamentUpdate({ thumbnail_image_url: result.url })
+        return result
+      } else {
+        throw new Error(result.error)
+      }
+    } catch (error) {
+      console.error('Failed to upload thumbnail:', error)
+      return { success: false, error: error.message }
+    } finally {
+      setUploadingThumbnail(false)
+    }
+  }
+
+  const handleBannerUpload = async (file) => {
+    try {
+      setUploadingBanner(true)
+      const result = await uploadTournamentImage(file, tournament.id, 'banner')
+
+      if (result.success) {
+        await handleTournamentUpdate({ banner_image_url: result.url })
+        return result
+      } else {
+        throw new Error(result.error)
+      }
+    } catch (error) {
+      console.error('Failed to upload banner:', error)
+      return { success: false, error: error.message }
+    } finally {
+      setUploadingBanner(false)
+    }
+  }
+
+  const handleRemoveThumbnail = async () => {
+    if (!tournament.thumbnail_image_url) return
+
+    try {
+      setSaving(true)
+
+      // Extract the file path from the URL for deletion
+      if (tournament.thumbnail_image_url.includes('supabase')) {
+        console.log('Original URL:', tournament.thumbnail_image_url)
+
+        const url = new URL(tournament.thumbnail_image_url)
+        console.log('URL pathname:', url.pathname)
+
+        const pathParts = url.pathname.split('/')
+        console.log('Path parts:', pathParts)
+
+        const fileName = pathParts[pathParts.length - 1]
+        console.log('Extracted filename:', fileName)
+
+        const filePath = `thumbnails/${fileName}`
+        console.log('Final file path for deletion:', filePath)
+
+        // Delete from storage
+        const deleteResult = await deleteTournamentImage(filePath)
+        console.log('Delete result:', deleteResult)
+      }
+
+      // Update database to remove the URL
+      await handleTournamentUpdate({ thumbnail_image_url: null })
+    } catch (error) {
+      console.error('Failed to remove thumbnail:', error)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleRemoveBanner = async () => {
+    if (!tournament.banner_image_url) return
+
+    try {
+      setSaving(true)
+
+      // Extract the file path from the URL for deletion
+      if (tournament.banner_image_url.includes('supabase')) {
+        const url = new URL(tournament.banner_image_url)
+        const pathParts = url.pathname.split('/')
+        const fileName = pathParts[pathParts.length - 1]
+        const filePath = `banners/${fileName}`
+
+        // Delete from storage
+        await deleteTournamentImage(filePath)
+      }
+
+      // Update database to remove the URL
+      await handleTournamentUpdate({ banner_image_url: null })
+    } catch (error) {
+      console.error('Failed to remove banner:', error)
     } finally {
       setSaving(false)
     }
@@ -251,8 +358,9 @@ export default function TournamentManagePage() {
 
         {/* Settings Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="general">General</TabsTrigger>
+            <TabsTrigger value="images">Images</TabsTrigger>
             <TabsTrigger value="phases">Match Phases</TabsTrigger>
             <TabsTrigger value="matches">Matches</TabsTrigger>
             <TabsTrigger value="permissions">Access Control</TabsTrigger>
@@ -278,11 +386,11 @@ export default function TournamentManagePage() {
                       placeholder="Enter tournament name"
                     />
                   </div>
-                  
+
                   <div className="space-y-2">
                     <Label htmlFor="game">Game</Label>
-                    <Select 
-                      value={tournament.game} 
+                    <Select
+                      value={tournament.game}
                       onValueChange={(value) => setTournament(prev => ({ ...prev, game: value }))}
                     >
                       <SelectTrigger>
@@ -311,7 +419,7 @@ export default function TournamentManagePage() {
                 </div>
 
                 <div className="flex justify-end">
-                  <Button 
+                  <Button
                     onClick={() => handleTournamentUpdate({
                       name: tournament.name,
                       game: tournament.game,
@@ -325,6 +433,166 @@ export default function TournamentManagePage() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="images">
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Tournament Images</CardTitle>
+                  <CardDescription>
+                    Upload custom images for your tournament or use default game images
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    {/* Thumbnail Image */}
+                    <div className="space-y-4">
+                      <div>
+                        <Label className="text-base font-semibold">Thumbnail Image</Label>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Used in tournament listings and cards (recommended: 800x600px)
+                        </p>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="relative h-32 overflow-hidden rounded-lg border-2 border-dashed border-muted-foreground/25">
+                          <TournamentThumbnail
+                            tournament={tournament}
+                            className="w-full h-full"
+                          />
+                        </div>
+
+                        <div>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0]
+                              if (file) {
+                                await handleThumbnailUpload(file)
+                              }
+                            }}
+                            className="hidden"
+                            id="thumbnail-upload"
+                          />
+                          <Button
+                            variant="outline"
+                            className="w-full"
+                            onClick={() => document.getElementById('thumbnail-upload')?.click()}
+                            disabled={uploadingThumbnail}
+                          >
+                            {uploadingThumbnail ? (
+                              <>
+                                <div className="animate-spin h-4 w-4 mr-2 border-2 border-primary border-t-transparent rounded-full" />
+                                Uploading...
+                              </>
+                            ) : (
+                              <>
+                                <Upload className="h-4 w-4 mr-2" />
+                                Upload Thumbnail
+                              </>
+                            )}
+                          </Button>
+                        </div>
+
+                        {tournament.thumbnail_image_url && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleRemoveThumbnail}
+                            disabled={saving}
+                            className="text-red-600 hover:text-red-700"
+                          >
+                            {saving ? 'Removing...' : 'Remove Thumbnail'}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Banner Image */}
+                    <div className="space-y-4">
+                      <div>
+                        <Label className="text-base font-semibold">Banner Image</Label>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Used on the tournament page header (recommended: 1920x1080px)
+                        </p>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="relative h-32 overflow-hidden rounded-lg border-2 border-dashed border-muted-foreground/25">
+                          <TournamentBanner
+                            tournament={tournament}
+                            className="w-full h-full"
+                          />
+                        </div>
+
+                        <div>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0]
+                              if (file) {
+                                await handleBannerUpload(file)
+                              }
+                            }}
+                            className="hidden"
+                            id="banner-upload"
+                          />
+                          <Button
+                            variant="outline"
+                            className="w-full"
+                            onClick={() => document.getElementById('banner-upload')?.click()}
+                            disabled={uploadingBanner}
+                          >
+                            {uploadingBanner ? (
+                              <>
+                                <div className="animate-spin h-4 w-4 mr-2 border-2 border-primary border-t-transparent rounded-full" />
+                                Uploading...
+                              </>
+                            ) : (
+                              <>
+                                <Upload className="h-4 w-4 mr-2" />
+                                Upload Banner
+                              </>
+                            )}
+                          </Button>
+                        </div>
+
+                        {tournament.banner_image_url && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleRemoveBanner}
+                            disabled={saving}
+                            className="text-red-600 hover:text-red-700"
+                          >
+                            {saving ? 'Removing...' : 'Remove Banner'}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <div className="flex items-start space-x-3">
+                      <Image className="h-5 w-5 text-blue-600 mt-0.5" />
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-blue-900">Image Guidelines</p>
+                        <ul className="text-sm text-blue-800 space-y-1">
+                          <li>• Thumbnail: Max 5MB, recommended 800x600px (4:3 ratio)</li>
+                          <li>• Banner: Max 10MB, recommended 1920x1080px (16:9 ratio)</li>
+                          <li>• Supported formats: JPG, PNG, WebP</li>
+                          <li>• Images are automatically optimized and cached</li>
+                          <li>• Default images are used when no custom image is uploaded</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
 
           <TabsContent value="phases">

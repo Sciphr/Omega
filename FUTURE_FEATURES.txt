@@ -17,20 +17,11 @@ OMEGA TOURNAMENT PLATFORM - FUTURE FEATURE IDEAS
    - Machine learning for optimal matchmaking
 
 3. COMMUNITY & SOCIAL FEATURES
-   - Tournament recap videos/highlights automatically generated
    - Player achievement system with unique badges
-   - Tournament "stories" - memorable moments, upsets, comebacks
-   - Team recruitment board with skill matching
-   - Mentor/coaching system connecting experienced and new players
-   - Tournament comments and community interaction
+
 
 4. MOBILE-FIRST EXPERIENCE
-   - Progressive Web App with offline capabilities
-   - Mobile-optimized tournament check-ins
-   - Push notifications for match times, opponent changes
-   - Quick score reporting via mobile
-   - Live tournament following for spectators
-   - Native mobile app development
+   - Mobile friendly UI
 
 5. EDUCATIONAL & IMPROVEMENT TOOLS
    - Post-match analysis with improvement suggestions

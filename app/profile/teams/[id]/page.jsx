@@ -78,15 +78,21 @@ export default function ProfileTeamPage() {
   }
 
   const isLeader = user && team && team.captain_id === user.id
-  const isMember = team?.team_members?.some(member => member.user_id === user.id)
+  const isMember = user && team?.team_members?.some(member => member.user_id === user.id)
   const gameTemplate = Object.values(GAME_TEMPLATES).find(g => g.id === team?.game)
 
-  // Redirect if user is not a member of this team
+  // Redirect based on user permissions
   useEffect(() => {
-    if (team && user && !isLeader && !isMember) {
-      router.push('/profile')
+    if (team && user) {
+      if (!isLeader && !isMember) {
+        // Not a member at all - redirect to profile
+        router.push('/profile')
+      } else if (isMember && !isLeader) {
+        // Is a member but not captain - redirect to public team view
+        router.push(`/teams/${teamId}`)
+      }
     }
-  }, [team, user, isLeader, isMember, router])
+  }, [team, user, isLeader, isMember, router, teamId])
 
   if (loading || loadingTeam) {
     return (
@@ -94,6 +100,18 @@ export default function ProfileTeamPage() {
         <div className="text-center">
           <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4"></div>
           <p className="text-muted-foreground">Loading team...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show loading while checking permissions and redirecting
+  if (team && user && !isLeader) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Redirecting...</p>
         </div>
       </div>
     )

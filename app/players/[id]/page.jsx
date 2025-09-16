@@ -10,37 +10,43 @@ import { Trophy, Users, Crown, Calendar, Activity, Target, TrendingUp, Star, Gam
 import Link from 'next/link'
 import { getGameDisplayName } from '@/lib/game-utils'
 import { AdvancedStats } from '@/components/analytics/advanced-stats'
+import { GameSelector, GameSelectorHeader, useGameSelection } from '@/components/game-selector'
 
 export default function PlayerProfilePage() {
   const params = useParams()
   const searchParams = useSearchParams()
   const playerId = params.id
-  const gameId = searchParams.get('game')
+  const initialGameId = searchParams.get('game')
   const [player, setPlayer] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [selectedGame, setSelectedGame] = useState(initialGameId)
+  const [allPlayerData, setAllPlayerData] = useState(null)
 
   useEffect(() => {
     if (playerId) {
       fetchPlayerProfile()
     }
-  }, [playerId, gameId])
+  }, [playerId])
+
+  // Handle game selection change
+  const handleGameChange = (game) => {
+    setSelectedGame(game)
+  }
 
   const fetchPlayerProfile = async () => {
     try {
       setLoading(true)
-      const url = gameId
-        ? `/api/players/${playerId}?game=${gameId}`
-        : `/api/players/${playerId}`
-
-      const response = await fetch(url)
+      // Always fetch all player data without game filter
+      const response = await fetch(`/api/players/${playerId}`)
       if (!response.ok) {
         throw new Error('Failed to fetch player profile')
       }
 
       const data = await response.json()
       if (data.success) {
-        setPlayer(data.player)
+        setAllPlayerData(data.player)
+        setPlayer(data.player) // Set initial player data
       } else {
         throw new Error(data.error || 'Failed to fetch player profile')
       }
@@ -50,6 +56,43 @@ export default function PlayerProfilePage() {
       setLoading(false)
     }
   }
+
+  // Filter player data based on selected game
+  const getFilteredPlayerData = () => {
+    if (!allPlayerData) return null
+
+    if (!selectedGame) {
+      // Return overall/combined stats
+      return allPlayerData
+    }
+
+    // Filter data for specific game
+    const filteredData = { ...allPlayerData }
+
+    // Filter game profiles
+    if (filteredData.game_profiles) {
+      const gameProfile = filteredData.game_profiles.find(p => p.game_id === selectedGame)
+      filteredData.game_profile = gameProfile
+      filteredData.current_game = selectedGame
+    }
+
+    // Filter tournament results for specific game
+    if (filteredData.tournament_results) {
+      filteredData.tournament_results = filteredData.tournament_results.filter(
+        result => result.game === selectedGame
+      )
+    }
+
+    // Filter stats for specific game if available
+    if (filteredData.game_stats && filteredData.game_stats[selectedGame]) {
+      filteredData.stats = filteredData.game_stats[selectedGame]
+    }
+
+    return filteredData
+  }
+
+  // Get the displayed player data
+  const displayedPlayer = getFilteredPlayerData()
 
   const formatPerformanceRating = (rating) => {
     if (!rating) return 'Unranked'
@@ -137,7 +180,7 @@ export default function PlayerProfilePage() {
     )
   }
 
-  if (!player) {
+  if (!displayedPlayer) {
     return (
       <div className="container mx-auto px-6 py-8">
         <div className="text-center">
@@ -159,50 +202,61 @@ export default function PlayerProfilePage() {
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
           <Link href="/players" className="hover:text-foreground">Players</Link>
           <span>/</span>
-          <span>{player.display_name || player.username}</span>
+          <span>{displayedPlayer.display_name || displayedPlayer.username}</span>
         </div>
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-4">
             <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white text-2xl font-bold">
-              {(player.display_name || player.username)?.charAt(0)?.toUpperCase() || '?'}
+              {(displayedPlayer.display_name || displayedPlayer.username)?.charAt(0)?.toUpperCase() || '?'}
             </div>
-            <div>
-              <h1 className="text-3xl font-bold mb-2">{player.display_name || player.username}</h1>
-              <div className="flex items-center gap-4 text-muted-foreground">
-                {player.current_game && (
-                  <>
-                    <span className="flex items-center gap-1">
-                      <Gamepad2 className="h-4 w-4" />
-                      {player.current_game}
-                    </span>
-                    <span>•</span>
-                  </>
-                )}
-                {player.game_profile?.display_name && (
-                  <>
-                    <span>{player.game_profile.display_name}</span>
-                    <span>•</span>
-                  </>
-                )}
-                {player.stats?.last_active && (
-                  <span>Last active {new Date(player.stats.last_active).toLocaleDateString()}</span>
-                )}
-              </div>
-              {player.game_profile?.rank && (
-                <div className="mt-2">
-                  <Badge className={getRankColor(player.game_profile.rank)}>
-                    {player.game_profile.rank}
+            <div className="flex flex-col justify-center h-20">
+              <h1 className="text-3xl font-bold">{displayedPlayer.display_name || displayedPlayer.username}</h1>
+              {(displayedPlayer.current_game || displayedPlayer.stats?.last_active) && (
+                <div className="flex items-center gap-4 text-muted-foreground mt-1">
+                  {displayedPlayer.current_game && (
+                    <>
+                      <span className="flex items-center gap-1">
+                        <Gamepad2 className="h-4 w-4" />
+                        {getGameDisplayName(displayedPlayer.current_game)}
+                      </span>
+                      <span>•</span>
+                    </>
+                  )}
+                  {displayedPlayer.game_profile?.display_name && (
+                    <>
+                      <span>{displayedPlayer.game_profile.display_name}</span>
+                      <span>•</span>
+                    </>
+                  )}
+                  {displayedPlayer.stats?.last_active && (
+                    <span>Last active {new Date(displayedPlayer.stats.last_active).toLocaleDateString()}</span>
+                  )}
+                </div>
+              )}
+              {displayedPlayer.game_profile?.rank && (
+                <div className="mt-1">
+                  <Badge className={getRankColor(displayedPlayer.game_profile.rank)}>
+                    {displayedPlayer.game_profile.rank}
                   </Badge>
                 </div>
               )}
             </div>
           </div>
-          {player.stats?.performance_rating && (
-            <Badge className={`${getPerformanceColor(player.stats.performance_rating)} text-lg px-3 py-1`}>
-              {formatPerformanceRating(player.stats.performance_rating)}
+          {displayedPlayer.stats?.performance_rating && (
+            <Badge className={`${getPerformanceColor(displayedPlayer.stats.performance_rating)} text-lg px-3 py-1`}>
+              {formatPerformanceRating(displayedPlayer.stats.performance_rating)}
             </Badge>
           )}
         </div>
+      </div>
+
+      {/* Game Selector */}
+      <div className="mb-6">
+        <GameSelectorHeader
+          currentGame={selectedGame}
+          playerName={displayedPlayer.display_name || displayedPlayer.username}
+          onGameChange={handleGameChange}
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -210,8 +264,8 @@ export default function PlayerProfilePage() {
         <div className="lg:col-span-2 space-y-6">
           {/* Advanced Analytics */}
           <AdvancedStats
-            gameId={gameId || player.current_game || 'default'}
-            playerStats={player.advanced_stats || player.stats}
+            gameId={selectedGame || displayedPlayer.current_game || 'default'}
+            playerStats={displayedPlayer.advanced_stats || displayedPlayer.stats}
           />
           {/* Game Profiles */}
           <Card>
@@ -226,7 +280,7 @@ export default function PlayerProfilePage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {player.game_profiles?.map((profile) => (
+                {displayedPlayer.game_profiles?.map((profile) => (
                   <div key={profile.game_id} className="flex items-center justify-between p-4 border rounded-lg">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
@@ -270,9 +324,9 @@ export default function PlayerProfilePage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {player.tournament_results && player.tournament_results.length > 0 ? (
+              {displayedPlayer.tournament_results && displayedPlayer.tournament_results.length > 0 ? (
                 <div className="space-y-3">
-                  {player.tournament_results.map((result) => (
+                  {displayedPlayer.tournament_results.map((result) => (
                     <div key={result.id} className="flex items-center justify-between p-3 border rounded-lg">
                       <div>
                         <div className="font-medium">{result.tournament_name}</div>
@@ -315,9 +369,9 @@ export default function PlayerProfilePage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {player.teams && player.teams.length > 0 ? (
+              {displayedPlayer.teams && displayedPlayer.teams.length > 0 ? (
                 <div className="space-y-3">
-                  {player.teams.map((team) => (
+                  {displayedPlayer.teams.map((team) => (
                     <Link key={team.id} href={`/teams/${team.id}`} className="block">
                       <div className="flex items-center justify-between p-3 border rounded-lg hover:shadow-md transition-shadow cursor-pointer hover:border-primary/20">
                         <div className="flex items-center gap-3">
@@ -360,70 +414,64 @@ export default function PlayerProfilePage() {
 
         {/* Sidebar */}
         <div className="space-y-6">
-          {/* Performance Stats */}
+          {/* Game Filter */}
+          <GameSelector
+            currentGame={selectedGame}
+            variant="tabs"
+            onGameChange={handleGameChange}
+            clientSideOnly={true}
+            className="sticky top-4"
+          />
+
+          {/* Quick Stats */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <TrendingUp className="h-5 w-5" />
-                Performance
+                Quick Stats
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {player.stats ? (
+              {displayedPlayer.stats ? (
                 <>
                   <div className="flex justify-between items-center">
-                    <span className="text-sm">Win Rate</span>
-                    <span className="font-bold text-lg">{formatWinRate(player.stats.win_rate)}</span>
+                    <span className="text-sm">Account Created</span>
+                    <span className="font-medium text-sm">{new Date(displayedPlayer.created_at).toLocaleDateString()}</span>
                   </div>
 
                   <div className="flex justify-between items-center">
-                    <span className="text-sm">KDA Ratio</span>
-                    <span className="font-bold text-lg">{formatKDA(player.stats.kda_ratio)}</span>
-                  </div>
-
-                  <Separator />
-
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Tournaments Won</span>
-                    <span className="font-medium">{player.stats.tournaments_won || 0}</span>
+                    <span className="text-sm">Preferred Role</span>
+                    <span className="font-medium text-sm">{displayedPlayer.preferred_role || 'Not set'}</span>
                   </div>
 
                   <div className="flex justify-between items-center">
-                    <span className="text-sm">Tournaments Played</span>
-                    <span className="font-medium">{player.stats.tournaments_played || 0}</span>
+                    <span className="text-sm">Teams Joined</span>
+                    <span className="font-medium">{displayedPlayer.teams?.length || 0}</span>
                   </div>
 
                   <div className="flex justify-between items-center">
-                    <span className="text-sm">Total Kills</span>
-                    <span className="font-medium">{player.stats.total_kills || 0}</span>
+                    <span className="text-sm">Games Played</span>
+                    <span className="font-medium">{displayedPlayer.game_profiles?.length || 0}</span>
                   </div>
 
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Total Deaths</span>
-                    <span className="font-medium">{player.stats.total_deaths || 0}</span>
-                  </div>
-
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Total Assists</span>
-                    <span className="font-medium">{player.stats.total_assists || 0}</span>
-                  </div>
-
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">MVP Awards</span>
-                    <span className="font-medium">{player.stats.mvp_awards || 0}</span>
-                  </div>
-
-                  {player.stats.average_placement && (
+                  {displayedPlayer.stats.average_placement && (
                     <div className="flex justify-between items-center">
                       <span className="text-sm">Avg. Placement</span>
-                      <span className="font-medium">#{Math.round(player.stats.average_placement)}</span>
+                      <span className="font-medium">#{Math.round(displayedPlayer.stats.average_placement)}</span>
+                    </div>
+                  )}
+
+                  {displayedPlayer.stats.mvp_awards && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm">MVP Awards</span>
+                      <span className="font-medium">{displayedPlayer.stats.mvp_awards}</span>
                     </div>
                   )}
                 </>
               ) : (
                 <div className="text-center py-4 text-muted-foreground">
                   <Target className="mx-auto h-6 w-6 mb-2" />
-                  <p className="text-sm">No performance data yet</p>
+                  <p className="text-sm">No stats available</p>
                 </div>
               )}
             </CardContent>

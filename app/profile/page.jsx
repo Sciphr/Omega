@@ -702,7 +702,6 @@ function TeamsTab({ teams, loading }) {
 
 
 function TournamentCard({ tournament }) {
-  const gameTemplate = Object.values(GAME_TEMPLATES).find(g => g.id === tournament.game)
   
   const getStatusBadge = (status) => {
     switch (status) {
@@ -741,7 +740,7 @@ function TournamentCard({ tournament }) {
             {getRoleBadge(tournament.role)}
           </div>
           <div className="flex items-center space-x-4 text-sm text-muted-foreground">
-            <span>{gameTemplate?.name || tournament.game}</span>
+            <span>{getGameDisplayName(tournament.game)}</span>
             <span>{new Date(tournament.created_at).toLocaleDateString()}</span>
             {tournament.placement && (
               <Badge className="bg-yellow-500">#{tournament.placement}</Badge>
@@ -760,7 +759,6 @@ function TournamentCard({ tournament }) {
 }
 
 function GameCard({ game, onEdit, onDelete }) {
-  const gameTemplate = Object.values(GAME_TEMPLATES).find(g => g.id === game.gameId)
   
   return (
     <div className="flex items-center justify-between p-4 border rounded-lg">
@@ -789,7 +787,6 @@ function GameCard({ game, onEdit, onDelete }) {
 }
 
 function TeamCard({ team }) {
-  const gameTemplate = Object.values(GAME_TEMPLATES).find(g => g.id === team.game)
   
   return (
     <div className="flex items-center justify-between p-4 border rounded-lg">
@@ -800,10 +797,15 @@ function TeamCard({ team }) {
         <div>
           <div className="flex items-center space-x-2 mb-1">
             <h3 className="font-semibold">{team.name}</h3>
-            {team.role === 'leader' && (
+            {team.role === 'leader' ? (
               <Badge variant="secondary">
                 <Crown className="h-3 w-3 mr-1" />
-                Leader
+                Captain
+              </Badge>
+            ) : (
+              <Badge variant="outline">
+                <User className="h-3 w-3 mr-1" />
+                Member
               </Badge>
             )}
           </div>
@@ -814,12 +816,22 @@ function TeamCard({ team }) {
           </div>
         </div>
       </div>
-      <Link href={`/profile/teams/${team.id}`}>
-        <Button variant="outline" size="sm">
-          <Eye className="h-4 w-4 mr-2" />
-          View
-        </Button>
-      </Link>
+      <div className="flex space-x-2">
+        <Link href={`/teams/${team.id}`}>
+          <Button variant="outline" size="sm">
+            <Eye className="h-4 w-4 mr-2" />
+            View
+          </Button>
+        </Link>
+        {team.role === 'leader' && (
+          <Link href={`/profile/teams/${team.id}`}>
+            <Button size="sm">
+              <Settings className="h-4 w-4 mr-2" />
+              Manage
+            </Button>
+          </Link>
+        )}
+      </div>
     </div>
   )
 }

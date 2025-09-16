@@ -74,43 +74,81 @@ export function AdvancedStats({ gameId, playerStats, className = '' }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Primary Stats Overview */}
+        {/* Key Performance Overview */}
         <div>
-          <h4 className="text-sm font-medium text-muted-foreground mb-3">Key Performance Indicators</h4>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {primaryStats.map(statKey => {
-              const statConfig = getStatConfig(gameId, statKey)
-              const value = playerStats[statKey]
-
-              if (!statConfig) return null
-
-              return (
-                <div key={statKey} className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950 p-4 rounded-lg border">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-lg">{statConfig.icon}</span>
-                    <span className="font-semibold text-sm">{statConfig.name}</span>
-                    {statKey === 'performance_rating' && (
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger>
-                            <HelpCircle className="h-3 w-3 text-muted-foreground" />
-                          </TooltipTrigger>
-                          <TooltipContent className="max-w-xs">
-                            <p>ELO-style rating starting at 1000. Increases with wins against higher-rated opponents, decreases with losses. Higher rating = stronger player.</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    )}
-                  </div>
-                  <div className="text-2xl font-bold text-primary">
-                    {statConfig.format(value)}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {statConfig.description}
-                  </p>
+          <h4 className="text-sm font-medium text-muted-foreground mb-3">Performance Overview</h4>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {/* Performance Rating */}
+            {playerStats.performance_rating !== undefined && (
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950 p-4 rounded-lg border">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">⭐</span>
+                  <span className="font-semibold text-sm">Rating</span>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs">
+                        <p>ELO-style rating starting at 1000. Increases with wins against higher-rated opponents, decreases with losses.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
-              )
-            })}
+                <div className="text-2xl font-bold text-primary">
+                  {Math.round(playerStats.performance_rating).toLocaleString()}
+                </div>
+              </div>
+            )}
+
+            {/* Win Rate */}
+            {playerStats.win_rate !== undefined && (
+              <div className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950 dark:to-emerald-950 p-4 rounded-lg border">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">🏆</span>
+                  <span className="font-semibold text-sm">Win Rate</span>
+                </div>
+                <div className="text-2xl font-bold text-green-600">
+                  {Math.round(playerStats.win_rate)}%
+                </div>
+              </div>
+            )}
+
+            {/* Total Matches */}
+            {playerStats.total_matches !== undefined && (
+              <div className="bg-gradient-to-br from-purple-50 to-violet-50 dark:from-purple-950 dark:to-violet-950 p-4 rounded-lg border">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">🎮</span>
+                  <span className="font-semibold text-sm">Matches</span>
+                </div>
+                <div className="text-2xl font-bold text-purple-600">
+                  {playerStats.total_matches.toLocaleString()}
+                </div>
+              </div>
+            )}
+
+            {/* KDA or tournament-specific stat */}
+            {playerStats.kda_ratio !== undefined ? (
+              <div className="bg-gradient-to-br from-orange-50 to-red-50 dark:from-orange-950 dark:to-red-950 p-4 rounded-lg border">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">⚔️</span>
+                  <span className="font-semibold text-sm">KDA</span>
+                </div>
+                <div className="text-2xl font-bold text-orange-600">
+                  {Number(playerStats.kda_ratio).toFixed(2)}
+                </div>
+              </div>
+            ) : playerStats.tournaments_won !== undefined && (
+              <div className="bg-gradient-to-br from-yellow-50 to-amber-50 dark:from-yellow-950 dark:to-amber-950 p-4 rounded-lg border">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-lg">🏅</span>
+                  <span className="font-semibold text-sm">Wins</span>
+                </div>
+                <div className="text-2xl font-bold text-yellow-600">
+                  {playerStats.tournaments_won}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

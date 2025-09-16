@@ -233,7 +233,7 @@ export default function PlayersDiscoveryPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
             {players.map((player) => (
               <Card key={`${player.user_id}-${player.game_id}`} className="hover:shadow-lg transition-shadow cursor-pointer">
-                <Link href={`/players/${player.user_id}?game=${player.game_id}`}>
+                <Link href={player.game_id ? `/players/${player.user_id}?game=${player.game_id}` : `/players/${player.user_id}`}>
                   <CardHeader>
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
